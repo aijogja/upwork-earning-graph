@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% load humanize %}
+
+{% block description %}Input the year, and shown the timereport data that presented in graph.{% endblock %}
+
+{% block body %}
+<div class="row">
+  <div class="col-lg-12">
+    <h3>Time Report {{ graph.year }}</h3>
+    <form class="form-inline" id="year-form" method="post">
+      {% csrf_token %}
+      <div class="input-group date mr-sm-1 pl-0 mb-2 col-lg-3" id="year-picker" data-target-input="nearest">
+        <input type="text" class="form-control datetimepicker-input" data-target="#year-picker" readonly name="year" value="{{ graph.year }}" />
+        <div class="input-group-append" data-target="#year-picker" data-toggle="datetimepicker">
+          <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+        </div>
+      </div>
+      <input type="hidden" name="month" value="">
+    </form>
+      <div class="row">
+        <div class="col-lg-6">
+          <p class="lead">
+            <table>
+              <tr>
+                <td class="w-50">Total Hour (per year)</td>
+                <td>: <span class="text-success">{{ graph.total_hours|intcomma }} hours</span></td>
+              </tr>
+              <tr>
+                <td class="w-50">Average (per week)</td>
+                <td>: <span class="text-{{ graph.work_status }}">{{ graph.avg_week }} hours</span></td>
+              </tr>
+            </table>
+          </p>
+        </div>
+      </div>
+
+      <div id="timereport_graph" class="highcharts-graph"></div>
+  </div>
+</div>
+{% endblock %} 
+
+{% block js_extra %}
+<script>
+  $(function() { 
+    // Datepicker year select
+    $('#year-picker').datetimepicker({
+      viewMode: 'years',
+      format: 'YYYY',
+      ignoreReadonly: true,
+    });
+    $('#year-picker').on('change.datetimepicker', function (e) {
+      $('#year-form').submit()
+    })
+  });
+</script>
+
+{% autoescape off %}
+<script>
+  function formating_time(total_time){
+    hours = parseInt(total_time)
+    minutes = parseInt(((total_time*60)%60).toFixed(2))
+    if(minutes == 0){
+      result = hours + ':00'
+    }else{
+      result = hours + ':' + minutes
+    }
+    return result
+  }
+
+  $(function () { 
+    $('#timereport_graph').highcharts({
+      chart: {
+        type: 'column'
+      },
+      title: {
+        text: '{{ page_title }}'
+      },
+      subtitle: {
+        text : '{{ graph.title }}'
+      },
+      xAxis: {
+        title: {
+          text: 'Weeks'
+        },
+        categories: {{ graph.x_axis }}
+      },
+      yAxis: {
+        title: {
+          text: 'Hours'
+        },
+        stackLabels: {
+          enabled: true,
+          style: {
+            fontWeight: 'bold',
+            color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
+          }
+        }
+      },
+      legend: {
+        align: 'right',
+        x: -70,
+        verticalAlign: 'top',
+        y: 20,
+        floating: true,
+        backgroundColor: (Highcharts.theme && Highcharts.theme.legendBackgroundColorSolid) || 'white',
+        borderColor: '#CCC',
+        borderWidth: 1,
+        shadow: false
+      },
+      tooltip: {
+        formatter: function() {
+          return {{ graph.tooltip }}
+        }
+      },
+      series: [{
+        name: 'Time Report',
+        data: {{ graph.report }},
+        color: '#2f7eda',
+      }],
+      exporting: {
+        url: 'http://export.highcharts.com/',
+        enabled: false
+        
+      }
+    });
+  });
+</script>
+{% endautoescape %}
+{% endblock js_extra %}

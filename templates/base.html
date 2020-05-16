@@ -1,0 +1,83 @@
+{% load static %}
+{% load earning_graph %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="{% block description %}Upwork APIs that used to monitor the earnings and shown into graph{% endblock description %}">
+  <meta name="author" content="Ai Jogja">
+  <title>{{ title }}{% if page_title %} | {{ page_title }}{% endif %}</title>
+
+  <!-- CSS -->
+  <link href="{% static 'css/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'css/style.css' %}" rel="stylesheet">
+  <link href="{% static 'css/font-awesome.css' %}" rel="stylesheet">
+  <link href="{% static 'css/tempusdominus-bootstrap-4.min.css' %}" rel="stylesheet">
+</head>
+<body>
+    <div class="d-flex container flex-column flex-md-row align-items-center p-3 mb-3 bg-white border-bottom">
+      <h2 class="my-0 mr-md-auto font-weight-normal text-muted">{{ title }}</h2>
+      <ul class="nav nav-pills">
+        <li class="nav-item">
+          <a class="nav-link {% active 'home' %}" href="{% url 'home' %}">Home</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% active 'about' %}" href="{% url 'about' %}">About</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/contact">Contact</a>
+        </li>
+        {% if request.user.is_authenticated and upwork_auth %}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" data-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">
+            <img src="{{ upwork_auth.profile_picture }}" alt="{{ upwork_auth.fullname }}" class="avatar mr-1"> {{ upwork_auth.fullname }}
+          </a>
+          <div class="dropdown-menu">
+            <a class="dropdown-item" href="{% url 'earning_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Earning Graph</a>
+            <a class="dropdown-item" href="{% url 'timereport_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Time Report Graph</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" href="{{ upwork_auth.profile_url }}" target="_blank"><i class="fa fa-external-link" aria-hidden="true"></i> Upwork Profile</a>
+            <a class="dropdown-item" href="{% url 'logout' %}"><i class="fa fa-power-off" aria-hidden="true"></i> Disconect</a>
+          </div>
+        </li>
+        {% endif %}
+      </ul>
+    </div>
+
+  <div class="container">
+
+    {% if messages %}
+      {% for message in messages %}
+      <div{% if message.tags %} class="alert alert-{{ message.tags }}"{% endif %}>
+      <button type="button" class="close" data-dismiss="alert">&times;</button>
+      {{ message }}
+      </div>
+      {% endfor %}
+    {% endif %}
+
+    {% block body %}
+    {% endblock %}
+
+    <footer class="pt-4 my-md-5 border-top">
+      <div class="row">
+        <div class="col-12 col-md">
+          <small class="d-block mb-3 text-muted">&copy; Ai Jogja 2015-2020</small>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+<script src="{% static 'js/jquery-3.4.1.min.js' %}"></script>
+<script src="{% static 'js/popper.min.js' %}"></script>
+<script src="{% static 'js/bootstrap.min.js' %}"></script>
+<script src="{% static 'js/highcharts.js' %}"></script>
+<script src="{% static 'js/exporting.js' %}"></script>
+<script src="{% static 'js/moment-2.24.0.min.js' %}"></script>
+<script src="{% static 'js/tempusdominus-bootstrap-4.min.js' %}"></script>
+{{ analytics_script|safe }}
+
+{% block js_extra %}
+{% endblock js_extra %}
+
+</html>
