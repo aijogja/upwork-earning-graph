@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="jumbotron">
+  <h1>{{title}}</h1>
+  <p class="lead">You do not have to worry about the safety of using this application. Because all of the data presented in this application is taken directly from Upwork API, such as for authentication.</p>
+  {% if not upwork_auth %}
+  <p><a class="btn btn-lg btn-success" href="{% url 'auth' %}">Authentication</a></p>
+  {% endif %}
+  <p><h3 class="text-success">Love the way you work.</h3></p>
+</div>
+{% endblock %} 
