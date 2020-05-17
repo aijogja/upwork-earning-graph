@@ -135,6 +135,8 @@ UPWORK_PUBLIC_KEY = ''
 
 UPWORK_SECRET_KEY = ''
 
+os.environ['UPWORK_SSL_CERT'] = os.path.join(BASE_DIR, 'cacert.pem')
+
 # Analytics
 
 ANALYTICS_SCRIPT = ''
