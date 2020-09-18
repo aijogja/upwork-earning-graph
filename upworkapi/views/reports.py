@@ -4,7 +4,11 @@ from django.contrib.auth.decorators import login_required
 from upworkapi.utils import upwork_client
 from datetime import datetime, timedelta
 from calendar import monthrange, month_name
-import upwork
+from upwork.routers import auth
+from upwork.routers.reports.finance import earnings
+from upwork.routers.reports import time
+from upwork.routers.organization import users
+from urllib.parse import quote
 import re
 
 
@@ -12,12 +16,13 @@ def finreport_annually(client, year):
     list_month = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May',
                   'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     # query data
-    user = client.auth.get_info()
+    user = auth.Api(client).get_user_info()
     query = """
         SELECT date, amount WHERE date >= '{0}-01-01' AND date <= '{0}-12-31'
     """.format(year)
-    finreport = client.finreport.get_provider_earnings(
-        user['info']['ref'], query
+    finreport = earnings.Gds(client).get_by_freelancer(
+        user['info']['ref'],
+        {'tq': quote(query)}
     )
     # extract data
     list_month_num = []
@@ -77,13 +82,14 @@ def finreport_monthly(client, year, month):
     month = str('0' + str(month))[-2:]
     count_day = str(count_day)
     # query data
-    user = client.auth.get_info()
+    user = auth.Api(client).get_user_info()
     query = """
         SELECT date, amount, description WHERE date >= '{0}-{1}-01'
         AND date <= '{0}-{1}-{2}'
     """.format(year, month, count_day)
-    finreport = client.finreport.get_provider_earnings(
-        user['info']['ref'], query
+    finreport = earnings.Gds(client).get_by_freelancer(
+        user['info']['ref'],
+        {'tq': quote(query)}
     )
     # extract data
     list_date = []
@@ -150,14 +156,14 @@ def timereport_weekly(client, year):
         last_week = 52
     list_week = [str(i) for i in range(1, last_week+1)]
     # query data
-    user_detail = client.hr.get_user_me()
-    query = upwork.utils.Query(
-        select=('worked_on', 'hours'),
-        where=(upwork.utils.Q('worked_on') <= '%s-12-31' % str(year)) &
-        (upwork.utils.Q('worked_on') >= '%s-01-01' % str(year))
-    )
-    timereport = client.timereport.get_provider_report(
-        user_detail['id'], query
+    user_detail = users.Api(client).get_my_info()
+    query = """
+        SELECT worked_on, hours WHERE worked_on <= '{year}-12-31'
+        AND worked_on >= '{year}-01-01'
+    """.format(year=year)
+    timereport = time.Gds(client).get_by_freelancer_limited(
+        user_detail['user']['id'],
+        {'tq': quote(query)}
     )
     # extract data
     weeks = {}

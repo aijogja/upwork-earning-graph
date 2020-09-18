@@ -4,33 +4,30 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 from upworkapi.utils import upwork_client
-import upwork
+from upwork.routers import auth
 
 # Create your views here.
 
 
-def auth(request):
+def auth_view(request):
     client = upwork_client.get_client()
-    return redirect(client.auth.get_authorize_url())
+    return redirect(client.get_authorization_url())
 
 
 def callback(request):
     data = {}
-    client = upwork.Client(
-        settings.UPWORK_PUBLIC_KEY,
-        settings.UPWORK_SECRET_KEY
-    )
+    client = upwork_client.client
     if request.method == 'GET' and request.GET.get('oauth_verifier'):
         verifier = request.GET.get('oauth_verifier')
-        client.auth.get_authorize_url()
-        oauth_token, oauth_token_secret = client.auth.get_access_token(
+        client.get_authorization_url()
+        access_token, access_token_secret = client.get_access_token(
             verifier
         )
 
         client = upwork_client.get_authenticated_client(
-            oauth_token, oauth_token_secret
+            access_token, access_token_secret
         )
-        user_info = client.auth.get_info()
+        user_info = auth.Api(client).get_user_info()
 
         user, created = User.objects.get_or_create(
             username=user_info['info']['ref'],
@@ -48,8 +45,8 @@ def callback(request):
                     ),
                 'profile_url': user_info['info']['profile_url'],
                 'profile_picture': user_info['info']['portrait_50_img'],
-                'oauth_access_token': oauth_token,
-                'oauth_access_token_secret': oauth_token_secret
+                'oauth_access_token': oauth_access_token,
+                'oauth_access_token_secret': oauth_access_token_secret
             }
             request.session['upwork_auth'] = upwork_auth
             messages.success(request, "Authentication Success.")
