@@ -217,8 +217,8 @@ def timereport_weekly(client, year):
 def earning_graph(request):
     data = {'page_title': 'Earning Graph'}
     client = upwork_client.get_authenticated_client(
-        request.session['upwork_auth']['oauth_access_token'],
-        request.session['upwork_auth']['oauth_access_token_secret'],
+        request.session['upwork_auth']['access_token'],
+        request.session['upwork_auth']['access_token_secret'],
     )
 
     if request.method == 'POST':
@@ -245,8 +245,8 @@ def earning_graph(request):
 def timereport_graph(request):
     data = {'page_title': 'Time Report Graph'}
     client = upwork_client.get_authenticated_client(
-        request.session['upwork_auth']['oauth_access_token'],
-        request.session['upwork_auth']['oauth_access_token_secret'],
+        request.session['upwork_auth']['access_token'],
+        request.session['upwork_auth']['access_token_secret'],
     )
 
     if request.method == 'POST':

@@ -45,8 +45,8 @@ def callback(request):
                     ),
                 'profile_url': user_info['info']['profile_url'],
                 'profile_picture': user_info['info']['portrait_50_img'],
-                'oauth_access_token': oauth_access_token,
-                'oauth_access_token_secret': oauth_access_token_secret
+                'access_token': access_token,
+                'access_token_secret': access_token_secret
             }
             request.session['upwork_auth'] = upwork_auth
             messages.success(request, "Authentication Success.")
