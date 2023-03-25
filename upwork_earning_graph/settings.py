@@ -11,21 +11,31 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
 import os
+import environ
+
+# Django-environ
+env = environ.Env(
+    # set casting, default value
+    DEBUG=(bool, False)
+)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Take environment variables from .env file
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'secret'
+SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env("DEBUG")
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = env("ALLOWED_HOSTS").split(",")
 
 
 # Application definition
@@ -76,12 +86,7 @@ WSGI_APPLICATION = 'upwork_earning_graph.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-    }
-}
+DATABASES = {"default": env.db()}
 
 
 # Password validation
@@ -131,9 +136,9 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
 
 # Upwork API
-UPWORK_PUBLIC_KEY = ''
+UPWORK_PUBLIC_KEY = env("UPWORK_PUBLIC_KEY")
 
-UPWORK_SECRET_KEY = ''
+UPWORK_SECRET_KEY = env("UPWORK_SECRET_KEY")
 
 os.environ['UPWORK_SSL_CERT'] = os.path.join(BASE_DIR, 'cacert.pem')
 
