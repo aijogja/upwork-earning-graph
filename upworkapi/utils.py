@@ -11,21 +11,20 @@ class UpworkClient:
 
     def get_client(self):
         config = upwork.Config({
-            'consumer_key': settings.UPWORK_PUBLIC_KEY,
-            'consumer_secret': settings.UPWORK_SECRET_KEY
+            'client_id': settings.UPWORK_PUBLIC_KEY,
+            'client_secret': settings.UPWORK_SECRET_KEY,
+            'redirect_uri': settings.UPWORK_CALLBACK_URL
         })
         self.client = upwork.Client(
             config
         )
         return self.client
 
-    def get_authenticated_client(
-            self, access_token, access_token_secret):
+    def get_authenticated_client(self, token):
         config = upwork.Config({
-            'consumer_key': settings.UPWORK_PUBLIC_KEY,
-            'consumer_secret': settings.UPWORK_SECRET_KEY,
-            'access_token': access_token,
-            'access_token_secret': access_token_secret
+            'client_id': settings.UPWORK_PUBLIC_KEY,
+            'client_secret': settings.UPWORK_SECRET_KEY,
+            'token': token
         })
         client = upwork.Client(
             config

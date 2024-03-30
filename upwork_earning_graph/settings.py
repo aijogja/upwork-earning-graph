@@ -137,8 +137,8 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
 # Upwork API
 UPWORK_PUBLIC_KEY = env("UPWORK_PUBLIC_KEY")
-
 UPWORK_SECRET_KEY = env("UPWORK_SECRET_KEY")
+UPWORK_CALLBACK_URL = env("UPWORK_CALLBACK_URL")
 
 os.environ['UPWORK_SSL_CERT'] = os.path.join(BASE_DIR, 'cacert.pem')
 

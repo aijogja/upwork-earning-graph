@@ -1,9 +1,9 @@
 # upwork-earning-graph
-About Upwork Earning Graph (http://upwork.aijogja.com)
+About Upwork Earning Graph (https://upwork.aijogja.com)
 
 ## Requirements
-- Python 3.9
-- Django 2.2
+- Python 3.10
+- Django 4.2
 
 ## Development
 - create virtualenv

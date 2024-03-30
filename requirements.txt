@@ -1,5 +1,5 @@
-Django==2.2.28
+Django==4.2.11
 django-environ==0.10.0
-python-upwork==2.1.0
+python-upwork-oauth2==3.1.0
 psycopg2-binary==2.8.5
 sentry-sdk==1.17.0
