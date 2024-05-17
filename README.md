@@ -20,3 +20,10 @@ DATABASE_URL=psql://docker:docker@127.0.0.1:5432/upwork_earning_graph
 UPWORK_PUBLIC_KEY=upwork-public-key
 UPWORK_SECRET_KEY=upwork-secret-key
 ```
+
+## Contribution
+To contribute, please setup in you local environment.
+
+Rules:
+- Please follow our guideline [Karamel Style](https://github.com/KaramelDev/Karamel-Style-Guide-Standart/blob/master/BACKEND.md)
+- Before run `git add`, please run following command `black .` to reformat the code standard pep8.

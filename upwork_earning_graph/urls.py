@@ -13,19 +13,20 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
 from django.urls import path
 from .views import home, about, contact
 from upworkapi.views import auth, reports
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('', home, name='home'),
-    path('about', about, name='about'),
-    path('contact', contact, name='contact'),
-    path('auth', auth.auth_view, name='auth'),
-    path('callback/', auth.callback, name='callback'),
-    path('logout', auth.disconnect, name='logout'),
-    path('earning', reports.earning_graph, name='earning_graph'),
-    path('timereport', reports.timereport_graph, name='timereport_graph'),
+    path("admin/", admin.site.urls),
+    path("", home, name="home"),
+    path("about", about, name="about"),
+    path("contact", contact, name="contact"),
+    path("auth", auth.auth_view, name="auth"),
+    path("callback/", auth.callback, name="callback"),
+    path("logout", auth.disconnect, name="logout"),
+    path("earning", reports.earning_graph, name="earning_graph"),
+    path("timereport", reports.timereport_graph, name="timereport_graph"),
 ]

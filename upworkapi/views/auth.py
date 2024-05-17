@@ -18,14 +18,14 @@ def auth_view(request):
 
 
 def callback(request):
-    if request.method == 'GET' and request.GET.get('code'):
+    if request.method == "GET" and request.GET.get("code"):
         client = upwork_client.client
         parsed_url = urlparse(request.build_absolute_uri())
         authz_code = "%s?%s" % (settings.UPWORK_CALLBACK_URL, parsed_url.query)
 
         try:
             token = client.get_access_token(authz_code)
-            request.session['token'] = token
+            request.session["token"] = token
             query = """
             query {
                 user {
@@ -46,39 +46,47 @@ def callback(request):
                 }
             }
             """
-            data = graphql.Api(client).execute({'query': query})
-            if 'data' in data:
-                list_name = data['data']['user']['name'].split(" ")
+            data = graphql.Api(client).execute({"query": query})
+            if "data" in data:
+                list_name = data["data"]["user"]["name"].split(" ")
                 user, created = User.objects.update_or_create(
-                    username=data['data']['user']['rid'],
+                    username=data["data"]["user"]["rid"],
                     defaults={
-                        'email': data['data']['user']['email'],
-                        'first_name': data['data']['user']['freelancerProfile']['firstName'],
-                        'last_name': data['data']['user']['freelancerProfile']['lastName']
-                    }
+                        "email": data["data"]["user"]["email"],
+                        "first_name": data["data"]["user"]["freelancerProfile"][
+                            "firstName"
+                        ],
+                        "last_name": data["data"]["user"]["freelancerProfile"][
+                            "lastName"
+                        ],
+                    },
                 )
                 auth_user = authenticate(upwork_id=user.username)
                 if auth_user:
                     login(request, auth_user)
                     upwork_auth = {
-                        'fullname': data['data']['user']['freelancerProfile']['fullName'],
-                        'profile_picture': data['data']['user']['photoUrl'],
-                        'profile_url': data['data']['user']['freelancerProfile']['personalData']['profileUrl'],
+                        "fullname": data["data"]["user"]["freelancerProfile"][
+                            "fullName"
+                        ],
+                        "profile_picture": data["data"]["user"]["photoUrl"],
+                        "profile_url": data["data"]["user"]["freelancerProfile"][
+                            "personalData"
+                        ]["profileUrl"],
                     }
-                    request.session['upwork_auth'] = upwork_auth
+                    request.session["upwork_auth"] = upwork_auth
                     messages.success(request, "Authentication Success.")
-                    return redirect('earning_graph')
+                    return redirect("earning_graph")
             messages.warning(request, "Authentication Failed.")
-            return redirect('home')
+            return redirect("home")
         except InvalidGrantError as e:
             messages.warning(request, "Authentication Failed.")
-            return redirect('home')
+            return redirect("home")
 
 
 def disconnect(request):
-    if 'upwork_auth' in request.session:
-        del request.session['upwork_auth']
-        del request.session['token']
+    if "upwork_auth" in request.session:
+        del request.session["upwork_auth"]
+        del request.session["token"]
         logout(request)
         messages.success(request, "Disconnect Success.")
-    return redirect('home')
+    return redirect("home")
