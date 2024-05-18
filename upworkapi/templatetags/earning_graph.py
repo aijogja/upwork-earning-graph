@@ -12,7 +12,7 @@ def active(context, urlname, *args):
         pattern = reverse(urlname, args=args)
     except NoReverseMatch:
         pattern = urlname
-    path = context['request'].path
+    path = context["request"].path
     if pattern == path:
-        return 'active'
-    return ''
+        return "active"
+    return ""

@@ -1,6 +1,5 @@
 from django.conf import settings
 import upwork
-import random
 
 
 class UpworkClient:
@@ -9,22 +8,26 @@ class UpworkClient:
     def __init__(self):
         self.get_client()
 
-    def get_client(self):
-        self.client = upwork.Client(
-                settings.UPWORK_PUBLIC_KEY,
-                settings.UPWORK_SECRET_KEY
+    def get_client(self, token=None):
+        if token:
+            config = upwork.Config(
+                {
+                    "client_id": settings.UPWORK_PUBLIC_KEY,
+                    "client_secret": settings.UPWORK_SECRET_KEY,
+                    "redirect_uri": settings.UPWORK_CALLBACK_URL,
+                    "token": token,
+                }
             )
+        else:
+            config = upwork.Config(
+                {
+                    "client_id": settings.UPWORK_PUBLIC_KEY,
+                    "client_secret": settings.UPWORK_SECRET_KEY,
+                    "redirect_uri": settings.UPWORK_CALLBACK_URL,
+                }
+            )
+        self.client = upwork.Client(config)
         return self.client
-
-    def get_authenticated_client(
-            self, oauth_access_token, oauth_access_token_secret):
-        client = upwork.Client(
-            settings.UPWORK_PUBLIC_KEY,
-            settings.UPWORK_SECRET_KEY,
-            oauth_access_token=oauth_access_token,
-            oauth_access_token_secret=oauth_access_token_secret
-        )
-        return client
 
 
 upwork_client = UpworkClient()
