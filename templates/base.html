@@ -75,9 +75,17 @@
 <script src="{% static 'js/exporting.js' %}"></script>
 <script src="{% static 'js/moment-2.24.0.min.js' %}"></script>
 <script src="{% static 'js/tempusdominus-bootstrap-4.min.js' %}"></script>
-{{ analytics_script|safe }}
+{% if google_analytics_id %}
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={{google_analytics_id}}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
 
+  gtag('config', '{{google_analytics_id}}');
+</script>
+{% endif %}
 {% block js_extra %}
 {% endblock js_extra %}
-
 </html>
