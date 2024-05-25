@@ -140,14 +140,6 @@ UPWORK_PUBLIC_KEY = env("UPWORK_PUBLIC_KEY")
 UPWORK_SECRET_KEY = env("UPWORK_SECRET_KEY")
 UPWORK_CALLBACK_URL = env("UPWORK_CALLBACK_URL")
 
-os.environ["UPWORK_SSL_CERT"] = os.path.join(BASE_DIR, "cacert.pem")
-
 # Analytics
 
-ANALYTICS_SCRIPT = ""
-
-
-try:
-    from upwork_earning_graph.local_settings import *
-except ImportError:
-    pass
+GOOGLE_ANALYTICS_ID = env("GOOGLE_ANALYTICS_ID")
