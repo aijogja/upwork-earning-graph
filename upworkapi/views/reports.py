@@ -196,7 +196,9 @@ def timereport_weekly(token, year):
         total_hours += hours
         weekly_report.append(hours)
     # threshold
-    avg_week = round(int(total_hours) / current_week, 2)
+    weeks_count = len(list_week)
+    avg_week = round(total_hours / weeks_count, 2)
+
     work_status = "success"
     if avg_week < 20:
         work_status = "danger"
@@ -209,7 +211,8 @@ def timereport_weekly(token, year):
         "x_axis": list_week,
         "report": weekly_report,
         "total_hours": int(total_hours),
-        "avg_week": int(avg_week),
+        "weeks_count": weeks_count,
+        "avg_week": avg_week,
         "work_status": work_status,
         "title": "Year : %s" % (year),
         "tooltip": tooltip,
