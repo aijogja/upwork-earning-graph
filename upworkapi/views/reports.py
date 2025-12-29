@@ -211,6 +211,7 @@ def timereport_weekly(token, year):
         "x_axis": list_week,
         "report": weekly_report,
         "total_hours": int(total_hours),
+        "weeks_count": weeks_count,
         "avg_week": avg_week,
         "work_status": work_status,
         "title": "Year : %s" % (year),
