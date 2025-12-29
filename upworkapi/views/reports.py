@@ -197,7 +197,7 @@ def timereport_weekly(token, year):
         weekly_report.append(hours)
     # threshold
     weeks_count = len(list_week)
-    avg_week = round(total_hours / weeks_count, 2)
+    avg_week = round(total_hours / weeks_count, 1)
 
     work_status = "success"
     if avg_week < 20:
