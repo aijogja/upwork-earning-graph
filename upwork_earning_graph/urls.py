@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path
 from .views import home, about, contact
 from upworkapi.views import auth, reports
+from upworkapi.views import debug
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -29,4 +30,8 @@ urlpatterns = [
     path("logout", auth.disconnect, name="logout"),
     path("earning", reports.earning_graph, name="earning_graph"),
     path("timereport", reports.timereport_graph, name="timereport_graph"),
+]
+
+urlpatterns += [
+    path("debug/session", debug.session_dump),
 ]
