@@ -5,3 +5,5 @@ db.sqlite3
 __pycache__/
 local_settings.py
 .env
+venv/
+echo "venv/" >> .gitignore
