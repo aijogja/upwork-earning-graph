@@ -5,7 +5,35 @@ from upworkapi.utils import upwork_client
 from datetime import datetime
 from calendar import monthrange, month_name
 from upwork.routers import graphql
+from datetime import datetime, timedelta
 import re
+
+
+
+def _month_week_ranges(year: int, month: int):
+    first = datetime(year, month, 1).date()
+    if month == 12:
+        next_month = datetime(year + 1, 1, 1).date()
+    else:
+        next_month = datetime(year, month + 1, 1).date()
+    last = next_month - timedelta(days=1)
+
+    start = first - timedelta(days=first.weekday())      # Monday
+    end = last + timedelta(days=(6 - last.weekday()))    # Sunday
+
+    ranges = []
+    w = 1
+    cur = start
+    while cur <= end:
+        ws = cur
+        we = cur + timedelta(days=6)
+        clip_s = max(ws, first)
+        clip_e = min(we, last)
+        if clip_s <= clip_e:
+            ranges.append((f"W{w}", clip_s, clip_e))
+            w += 1
+        cur += timedelta(days=7)
+    return ranges
 
 
 def earning_graph_annually(token, year):
@@ -74,17 +102,13 @@ def earning_graph_annually(token, year):
 
 def earning_graph_monthly(token, year, month):
     client = upwork_client.get_client(token)
-    # mapping date
-    list_day = []
+
+    year_str = str(year)
+    month_str = f"{month:02d}"
     count_day = monthrange(year, month)[1]
-    for i in range(1, (count_day + 1)):
-        list_day.append(i)
-    year = str(year)
-    month = f"{month:02d}"
-    count_day = str(count_day)
-    start_date = f"{year}{month}01"
-    end_date = f"{year}{month}{count_day}"
-    # query
+    start_date = f"{year_str}{month_str}01"
+    end_date = f"{year_str}{month_str}{count_day:02d}"
+
     query = """query User {
             user {
                 freelancerProfile {
@@ -105,45 +129,54 @@ def earning_graph_monthly(token, year, month):
                 }
             }
         }
-    """ % (
-        start_date,
-        end_date,
-    )
+    """ % (start_date, end_date)
+
     response = graphql.Api(client).execute({"query": query})
-    # processing data
-    list_report = []
-    list_earning = []
-    total_earning = 0
+
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
-    for k, v in enumerate(list_day, start=1):
-        weekly_earn = 0
-        total = 0
-        for m in earning_report:
-            if int(m["dateWorkedOn"][8:]) == k:
-                # compare number of day
-                total = total + float(m["totalCharges"])
+
+    week_ranges = _month_week_ranges(year, month)
+    x_axis = [wlabel for (wlabel, _, _) in week_ranges]
+
+    # init buckets
+    week_totals = {wlabel: 0.0 for wlabel in x_axis}
+    list_report = []
+    total_earning = 0.0
+
+    for m in earning_report:
+        d = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").date()
+        amt = float(m["totalCharges"])
+
+        # find which week range contains the date
+        for (wlabel, ws, we) in week_ranges:
+            if ws <= d <= we:
+                week_totals[wlabel] += amt
                 list_report.append(
                     {
                         "date": m["dateWorkedOn"],
+                        "week": wlabel,
                         "amount": m["totalCharges"],
                         "description": "%s - %s"
                         % (m["contract"]["offer"]["client"]["name"], m["memo"]),
                     }
                 )
-        weekly_earn = round(total, 2)
-        total_earning = round(total_earning + total, 2)
-        list_earning.append(weekly_earn)
+                break
 
-    tooltip = "'<b>Date : </b>'+this.x+'<br/>'+this.series.name+': $ '+this.y"
+        total_earning += amt
+
+    list_earning = [round(week_totals[w], 2) for w in x_axis]
+    total_earning = round(total_earning, 2)
+
+    tooltip = "'<b>Week : </b>'+this.x+'<br/>'+this.series.name+': $ '+this.y"
     data = {
-        "month": month_name[int(month)],
-        "year": year,
-        "x_axis": list_day,
+        "month": month_name[int(month_str)],
+        "year": year_str,
+        "x_axis": x_axis,
         "report": list_earning,
         "detail_earning": list_report,
         "total_earning": total_earning,
         "charity": round(total_earning * 0.025, 2),
-        "title": "Month : %s %s ($ %s)" % (month_name[int(month)], year, total_earning),
+        "title": "Month : %s %s ($ %s)" % (month_name[int(month_str)], year_str, total_earning),
         "tooltip": tooltip,
     }
     return data
