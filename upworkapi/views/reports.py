@@ -7,7 +7,7 @@ from calendar import monthrange, month_name
 from upwork.routers import graphql
 from datetime import datetime, timedelta
 import re
-
+from datetime import date
 
 
 def _month_week_ranges(year: int, month: int):
@@ -229,8 +229,19 @@ def timereport_weekly(token, year):
         total_hours += hours
         weekly_report.append(hours)
     # threshold
-    weeks_count = len(list_week)
-    avg_week = round(total_hours / weeks_count, 1)
+        selected_year = int(year)
+        today = date.today()
+
+        # pembagi average
+        if selected_year == today.year:
+            divisor_week = today.isocalendar()[1]   # minggu berjalan tahun ini
+        else:
+            divisor_week = last_week                # tahun lampau: total minggu tahun itu (52/53)
+
+        if divisor_week < 1:
+            divisor_week = 1
+
+        avg_week = round(total_hours / divisor_week, 1)
 
     work_status = "success"
     if avg_week < 20:
@@ -244,7 +255,6 @@ def timereport_weekly(token, year):
         "x_axis": list_week,
         "report": weekly_report,
         "total_hours": int(total_hours),
-        "weeks_count": weeks_count,
         "avg_week": avg_week,
         "work_status": work_status,
         "title": "Year : %s" % (year),
