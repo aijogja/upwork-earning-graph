@@ -8,6 +8,7 @@ from upwork.routers import graphql
 from datetime import datetime, timedelta
 import re
 from datetime import date
+from oauthlib.oauth2 import InvalidGrantError
 from django.shortcuts import render
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
@@ -315,127 +316,34 @@ def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
     year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
-    month = request.POST.get("month") 
+    month = request.POST.get("month")
 
-    if not re.match(r"^[0-9]{4}$", str(year)):
+    if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")
         return redirect("earning_graph")
 
-    if month:
-        finreport = earning_graph_monthly(request.session["token"], int(year), int(month))
-    else:
-        finreport = earning_graph_annually(request.session["token"], str(year))
+    try:
+        if month:
+            finreport = earning_graph_monthly(
+                request.session["token"], int(year), int(month)
+            )
+        else:
+            finreport = earning_graph_annually(
+                request.session["token"], str(year)
+            )
 
-    data["graph"] = finreport
+        data["graph"] = finreport
+        return render(request, "upworkapi/finance.html", data)
 
-    details = _get(finreport, "detail_earning", None) or []
-    totals = defaultdict(float)
+    except InvalidGrantError:
+        request.session.pop("token", None)
+        messages.warning(request, "Session expired. Please login again.")
+        return redirect("auth")
 
-    for d in details:
-        client = _extract_client_name(d)
-
-        raw = _get(d, "amount", 0) or 0
-        s = str(raw).replace("$", "").replace(",", "").strip()
-        amount = float(s) if s else 0.0
-
-        totals[client] += amount
-
-    # buang Unknown kalau tidak mau muncul
-    totals.pop("Unknown", None)
-
-    data["client_rows"] = [
-        {"name": name, "total": float(total)}
-        for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
-    ]
-
-    data["client_pie_data"] = json.dumps([
-        {"name": r["name"], "y": float(r["total"])}
-        for r in data["client_rows"]
-        if float(r["total"]) > 0
-    ])
-
-    month_val = _get(finreport, "month", None)
-
-
-    month_num = None
-    if isinstance(month_val, int):
-        month_num = month_val
-    elif isinstance(month_val, str) and month_val.strip():
-        m = month_val.strip()
-
-        try:
-            month_num = list(calendar.month_name).index(m)
-        except ValueError:
-
-            try:
-                month_num = list(calendar.month_abbr).index(m)
-            except ValueError:
-                month_num = None
-
-    data["month_num"] = month_num
-
-
-    if _get(finreport, "month", None):
-
-        details = _get(finreport, "detail_earning", None) or []
-        totals = defaultdict(float)
-
-        for d in details:
-            client = _extract_client_name(d)
-
-            raw = _get(d, "amount", 0) or 0
-
-            s = str(raw).replace("$", "").replace(",", "").strip()
-            try:
-                amount = float(s)
-            except ValueError:
-                amount = 0.0
-
-            totals[client] += amount
-
-        totals.pop("Unknown", None)
-
-        data["client_rows"] = [
-            {"name": name, "total": float(total)}
-            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
-        ]
-
-        data["client_pie_data"] = json.dumps([
-            {"name": r["name"], "y": float(r["total"])}
-            for r in data["client_rows"]
-            if float(r["total"]) > 0
-        ])
-
-    else:
-        data["client_rows"] = []
-
-
-    if getattr(finreport, "month", None) and getattr(finreport, "detail_earning", None):
-        totals = defaultdict(float)
-
-        for d in finreport.detail_earning:
-            client = _extract_client_name(d)
-            amount = float(getattr(d, "amount", 0) or 0)
-            totals[client] += amount
-
-        data["client_rows"] = [
-            {"name": name, "total": total}
-            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
-        ]
-
-        data["client_pie_data"] = json.dumps([
-            {"name": r["name"], "y": float(r["total"])}
-            for r in data.get("client_rows", [])
-            if float(r["total"]) > 0
-        ])
-
-        raw = _get(d, "amount", 0) or 0
-        s = str(raw).replace("$", "").replace(",", "").strip()
-        amount = float(s) if s else 0.0
-        totals[client] += amount
-
-
-    return render(request, "upworkapi/finance.html", data)
+    except KeyError:
+        # token tidak ada di session
+        messages.warning(request, "Session missing. Please login again.")
+        return redirect("auth")
 
 
 @login_required(login_url="/")
