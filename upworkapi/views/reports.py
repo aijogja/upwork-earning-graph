@@ -267,23 +267,17 @@ def timereport_weekly(token, year):
 def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
-    if request.method == "POST":
-        year = request.POST.get("year")
-        month = request.POST.get("month")
-        if not re.match("^[0-9]+$", year) or len(year) != 4:
-            messages.warning(request, "Wrong year format.!")
-            return redirect("earning_graph")
+    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    month = request.POST.get("month") 
 
-        if month:
-            finreport = earning_graph_monthly(
-                request.session["token"], int(year), int(month)
-            )
-        else:
-            finreport = earning_graph_annually(request.session["token"], year)
+    if not re.match(r"^[0-9]{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("earning_graph")
+
+    if month:
+        finreport = earning_graph_monthly(request.session["token"], int(year), int(month))
     else:
-        now = datetime.now()
-        year = str(now.year)
-        finreport = earning_graph_annually(request.session["token"], year)
+        finreport = earning_graph_annually(request.session["token"], str(year))
 
     data["graph"] = finreport
     return render(request, "upworkapi/finance.html", data)

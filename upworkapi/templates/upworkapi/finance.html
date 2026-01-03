@@ -22,15 +22,16 @@
       </div>
     </div>
 
-    <form class="form-inline mb-3" id="year-form" method="post">
+    <form class="form-inline mb-3 d-flex align-items-center" id="year-form" method="post">
       {% csrf_token %}
-      <div class="input-group date mr-sm-2" id="year-picker" data-target-input="nearest" style="max-width: 240px;">
+
+      <div class="input-group mr-2" id="year-picker" data-target-input="nearest" style="max-width:240px;">
         <input type="text"
-               class="form-control datetimepicker-input"
-               data-target="#year-picker"
-               readonly
-               name="year"
-               value="{{ graph.year }}" />
+              class="form-control datetimepicker-input"
+              data-target="#year-picker"
+              readonly
+              name="year"
+              value="{{ graph.year }}" />
         <div class="input-group-append" data-target="#year-picker" data-toggle="datetimepicker">
           <div class="input-group-text"><i class="fa fa-calendar"></i></div>
         </div>
@@ -38,7 +39,7 @@
 
       {% if graph.month %}
       <div class="ml-auto">
-        <a href="{% url 'earning_graph' %}" class="btn btn-primary">
+        <a href="{% url 'earning_graph' %}?year={{ graph.year }}" class="btn btn-primary">
           ← Back
         </a>
       </div>
