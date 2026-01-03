@@ -22,7 +22,10 @@
       </div>
     </div>
 
-    <form class="form-inline mb-3 d-flex align-items-center" id="year-form" method="post">
+    <form class="form-inline mb-3 d-flex align-items-center"
+      id="year-form"
+      method="post"
+      action="{% url 'earning_graph' %}">
       {% csrf_token %}
 
       <div class="input-group mr-2" id="year-picker" data-target-input="nearest" style="max-width:240px;">

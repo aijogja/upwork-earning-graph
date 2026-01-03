@@ -9,6 +9,11 @@ from datetime import datetime, timedelta
 import re
 from datetime import date
 
+from datetime import datetime
+import re
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from oauthlib.oauth2 import InvalidGrantError
 
 def _month_week_ranges(year: int, month: int):
     first = datetime(year, month, 1).date()
@@ -268,19 +273,34 @@ def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
     year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
-    month = request.POST.get("month") 
+    month = request.POST.get("month")
 
-    if not re.match(r"^[0-9]{4}$", str(year)):
+    if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")
         return redirect("earning_graph")
 
-    if month:
-        finreport = earning_graph_monthly(request.session["token"], int(year), int(month))
-    else:
-        finreport = earning_graph_annually(request.session["token"], str(year))
+    try:
+        if month:
+            finreport = earning_graph_monthly(
+                request.session["token"], int(year), int(month)
+            )
+        else:
+            finreport = earning_graph_annually(
+                request.session["token"], str(year)
+            )
 
-    data["graph"] = finreport
-    return render(request, "upworkapi/finance.html", data)
+        data["graph"] = finreport
+        return render(request, "upworkapi/finance.html", data)
+
+    except InvalidGrantError:
+        request.session.pop("token", None)
+        messages.warning(request, "Session expired. Please login again.")
+        return redirect("auth")
+
+    except KeyError:
+        # token tidak ada di session
+        messages.warning(request, "Session missing. Please login again.")
+        return redirect("auth")
 
 
 @login_required(login_url="/")
