@@ -8,12 +8,14 @@ from upwork.routers import graphql
 from datetime import datetime, timedelta
 import re
 from datetime import date
-
-from datetime import datetime
-import re
-from django.shortcuts import render, redirect
-from django.contrib import messages
 from oauthlib.oauth2 import InvalidGrantError
+from django.shortcuts import render
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+from decimal import Decimal
+from collections import defaultdict
+import calendar
+import json
 
 def _month_week_ranges(year: int, month: int):
     first = datetime(year, month, 1).date()
@@ -269,6 +271,47 @@ def timereport_weekly(token, year):
 
 
 @login_required(login_url="/")
+def _extract_client_name(detail):
+    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        val = getattr(detail, attr, None)
+        if val:
+            return str(val).strip()
+
+    desc = str(getattr(detail, "description", "")).strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return "Unknown"
+
+def _get(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def _extract_client_name(detail):
+    # detail bisa dict atau object
+    def dget(k):
+        return _get(detail, k, None)
+
+    for k in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        v = dget(k)
+        if v:
+            return str(v).strip()
+
+    desc = str(dget("description") or "").strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return "Unknown"
+
 def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
@@ -319,3 +362,75 @@ def timereport_graph(request):
     timelog = timereport_weekly(request.session["token"], year)
     data["graph"] = timelog
     return render(request, "upworkapi/timereport.html", data)
+
+@login_required(login_url="/")
+def earning_month_client_detail(request, year, month, client_name):
+    qs = (
+        Earning.objects
+        .filter(date__year=year, date__month=month, client_name=client_name)
+        .order_by("date")
+    )
+
+    total = qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.0")))["total"]
+
+    return render(
+        request,
+        "earning/earning_month_client_detail.html",
+        {
+            "year": year,
+            "month": month,
+            "client_name": client_name,
+            "rows": qs,
+            "total": float(total),
+        },
+    )
+
+def _extract_client_name(detail):
+    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        val = getattr(detail, attr, None)
+        if val:
+            return str(val).strip()
+
+    desc = str(getattr(detail, "description", "")).strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^([^:-]{2,60})\s*[:\-]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return desc[:40]
+
+@login_required(login_url="/")
+def earning_month_client_detail(request, year, month, client_name):
+    finreport = earning_graph_monthly(request.session["token"], int(year), int(month))
+
+    rows = []
+    total = 0.0
+
+    if getattr(finreport, "detail_earning", None):
+        for d in finreport.detail_earning:
+            client = _extract_client_name(d)
+            if client == client_name:
+                rows.append(d)
+                total += float(getattr(d, "amount", 0) or 0)
+
+    return render(
+        request,
+        "earning/earning_month_client_detail.html",
+        {
+            "year": year,
+            "month": month,
+            "client_name": client_name,
+            "rows": rows,
+            "total": total,
+        },
+    )
+
+def _extract_client_name(detail):
+    desc = str(_get(detail, "description", "") or "").strip()
+    if not desc:
+        return "Unknown"
+
+    return desc.split(" - ", 1)[0].strip() or "Unknown"
+

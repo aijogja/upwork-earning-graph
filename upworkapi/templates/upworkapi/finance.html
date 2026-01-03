@@ -9,7 +9,7 @@
 <style>
   #earning_graph{
     width: 100%;
-    min-height: 420px;
+    height: 420px;
   }
 </style>
 
@@ -70,6 +70,15 @@
 
     <div id="earning_graph" class="highcharts-graph mb-3"></div>
 
+    {% if graph.month %}
+    <div class="card mt-4">
+      <div class="card-body">
+        <h3 class="mb-3">Earning per Client</h3>
+        <div id="client_pie" style="width:100%; height:420px;"></div>
+      </div>
+    </div>
+    {% endif %}
+
     {% if graph.detail_earning %}
     <div class="row mt-5">
       <div class="col-lg-12">
@@ -109,6 +118,7 @@
   </div>
 </div>
 
+
 {% endblock %}
 
 {% block js_extra %}
@@ -119,18 +129,16 @@
       format: 'YYYY',
       ignoreReadonly: true,
     });
-    $('#year-picker').on('change.datetimepicker', function (e) {
-      $('#year-form').submit()
-    })
+    $('#year-picker').on('change.datetimepicker', function () {
+      $('#year-form').submit();
+    });
   });
 </script>
 
 {% autoescape off %}
 <script>
   $(function () {
-    Highcharts.setOptions({
-      lang: { thousandsSep: ',' }
-    });
+    Highcharts.setOptions({ lang: { thousandsSep: ',' } });
 
     var chart = Highcharts.chart('earning_graph', {
       chart: { type: 'column' },
@@ -138,41 +146,20 @@
       subtitle: { text: '{{ graph.title }}' },
       xAxis: { categories: {{ graph.x_axis }} },
       yAxis: {
-        title: { text: 'Dollar ($)' },
-        stackLabels: {
-          enabled: true,
-          style: {
-            fontWeight: 'bold',
-            color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
-          }
-        }
-      },
-      legend: {
-        align: 'right',
-        x: -70,
-        verticalAlign: 'top',
-        y: 20,
-        floating: true,
-        backgroundColor: (Highcharts.theme && Highcharts.theme.legendBackgroundColorSolid) || 'white',
-        borderColor: '#CCC',
-        borderWidth: 1,
-        shadow: false
+        title: { text: 'Dollar ($)' }
       },
       tooltip: {
-        formatter: function() {
-          return {{ graph.tooltip }}
-        }
+        formatter: function () { return {{ graph.tooltip }}; }
       },
       plotOptions: {
-        column: { stacking: 'normal' },
         series: {
           cursor: 'pointer',
           point: {
             events: {
               click: function() {
                 if (this.options.month) {
-                  var check_conf = confirm("You are request to check detail month earning.");
-                  if (check_conf) {
+                  var ok = confirm("You are request to check detail month earning.");
+                  if (ok) {
                     $('input[name=month]').val(this.options.month);
                     $('#year-form').submit();
                   }
@@ -187,16 +174,71 @@
         data: {{ graph.report }},
         color: '#2f7eda'
       }],
-      exporting: {
-        url: 'http://export.highcharts.com/',
-        enabled: false
-      }
+      exporting: { enabled: false }
     });
 
-    setTimeout(function () {
-      if (chart) chart.reflow();
-    }, 100);
+    setTimeout(function () { if (chart) chart.reflow(); }, 100);
   });
 </script>
 {% endautoescape %}
+
+{% if graph.month %}
+<script>
+  $(function () {
+    try {
+      var pieData = {{ client_pie_data|default:"[]"|safe }};
+
+      pieData = (pieData || []).map(function (p) {
+        return { name: p.name, y: Number(String(p.y).replace(/[$,]/g, '')) || 0 };
+      }).filter(function (p) { return p.y > 0; });
+
+      if (!pieData.length) {
+        document.getElementById('client_pie').innerHTML =
+          '<div class="text-muted">No client data</div>';
+        return;
+      }
+
+      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+
+      Highcharts.chart('client_pie', {
+        chart: { type: 'pie' },
+        title: { text: null },
+        subtitle: {
+          text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+          align: 'center',
+          verticalAlign: 'middle',
+          y: 10,
+          useHTML: true
+        },
+        tooltip: { enabled: false },
+        plotOptions: {
+          pie: {
+            innerSize: '55%',
+            dataLabels: {
+              enabled: true,
+              useHTML: true,
+              formatter: function () {
+                return (
+                  '<b>' + this.point.name + '</b><br/>' +
+                  '$' + Highcharts.numberFormat(this.point.y, 2) +
+                  ' <span style="color:#666">(' +
+                  Highcharts.numberFormat(this.percentage, 1) +
+                  '%)</span>'
+                );
+              }
+            }
+          }
+        },
+        series: [{ name: 'Earning', data: pieData }],
+        exporting: { enabled: false }
+      });
+    } catch (e) {
+      console.error(e);
+      document.getElementById('client_pie').innerHTML =
+        '<div class="text-danger">Pie chart error (check console)</div>';
+    }
+  });
+</script>
+{% endif %}
+
 {% endblock js_extra %}
