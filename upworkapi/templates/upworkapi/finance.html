@@ -5,29 +5,51 @@
 {% block description %}Input the year, and shown the earning data that presented in graph.{% endblock %}
 
 {% block body %}
+
+<style>
+  #earning_graph{
+    width: 100%;
+    min-height: 420px;
+  }
+</style>
+
 <div class="row">
   <div class="col-lg-12">
-    <h3 class="mb-3">Earning {{ graph.month }} {{ graph.year }}</h3>
-    
-    {% if graph.month %}
-    <a href="/earning" class="btn btn-secondary mb-3">
-      ← Back to Yearly Report
-    </a>
-    {% endif %}
-    
-    <form class="form-inline" id="year-form" method="post">
+
+    <div class="row align-items-center mb-3">
+      <div class="col-lg-12">
+        <h3 class="mb-0">Earning {{ graph.month }} {{ graph.year }}</h3>
+      </div>
+    </div>
+
+    <form class="form-inline mb-3" id="year-form" method="post">
       {% csrf_token %}
-      <div class="input-group date mr-sm-1 pl-0 mb-2 col-lg-3" id="year-picker" data-target-input="nearest">
-        <input type="text" class="form-control datetimepicker-input" data-target="#year-picker" readonly name="year" value="{{ graph.year }}" />
+      <div class="input-group date mr-sm-2" id="year-picker" data-target-input="nearest" style="max-width: 240px;">
+        <input type="text"
+               class="form-control datetimepicker-input"
+               data-target="#year-picker"
+               readonly
+               name="year"
+               value="{{ graph.year }}" />
         <div class="input-group-append" data-target="#year-picker" data-toggle="datetimepicker">
           <div class="input-group-text"><i class="fa fa-calendar"></i></div>
         </div>
       </div>
+
+      {% if graph.month %}
+      <div class="ml-auto">
+        <a href="{% url 'earning_graph' %}" class="btn btn-primary">
+          ← Back
+        </a>
+      </div>
+      {% endif %}
+
       <input type="hidden" name="month" value="">
     </form>
+
     <div class="row">
       <div class="col-lg-6">
-        <p class="lead">
+        <p class="lead mb-3">
           <table>
             <tr>
               <td class="w-50">Total Earning</td>
@@ -42,7 +64,7 @@
       </div>
     </div>
 
-    <div id="earning_graph" class="highcharts-graph"></div>
+    <div id="earning_graph" class="highcharts-graph mb-3"></div>
 
     {% if graph.detail_earning %}
     <div class="row mt-5">
@@ -79,14 +101,15 @@
       </div>
     </div>
     {% endif %}
+
   </div>
 </div>
-{% endblock %} 
+
+{% endblock %}
 
 {% block js_extra %}
 <script>
-  $(function() { 
-    // Datepicker year select
+  $(function() {
     $('#year-picker').datetimepicker({
       viewMode: 'years',
       format: 'YYYY',
@@ -98,32 +121,20 @@
   });
 </script>
 
-
 {% autoescape off %}
 <script>
   $(function () {
     Highcharts.setOptions({
-      lang: {
-        thousandsSep: ','
-      }
-    })
-    $('#earning_graph').highcharts({
-      chart: {
-        type: 'column'
-      },
-      title: {
-        text: '{{ page_title }}'
-      },
-      subtitle: {
-        text : '{{ graph.title }}'
-      },
-      xAxis: {
-        categories: {{ graph.x_axis }}
-      },
+      lang: { thousandsSep: ',' }
+    });
+
+    var chart = Highcharts.chart('earning_graph', {
+      chart: { type: 'column' },
+      title: { text: '{{ page_title }}' },
+      subtitle: { text: '{{ graph.title }}' },
+      xAxis: { categories: {{ graph.x_axis }} },
       yAxis: {
-        title: {
-          text: 'Dollar ($)'
-        },
+        title: { text: 'Dollar ($)' },
         stackLabels: {
           enabled: true,
           style: {
@@ -149,17 +160,15 @@
         }
       },
       plotOptions: {
-        column: {
-          stacking: 'normal',
-        },
+        column: { stacking: 'normal' },
         series: {
           cursor: 'pointer',
           point: {
             events: {
               click: function() {
-                if(this.options.month){
-                  check_conf = confirm("You are request to check detail month earning.");
-                  if(check_conf){
+                if (this.options.month) {
+                  var check_conf = confirm("You are request to check detail month earning.");
+                  if (check_conf) {
                     $('input[name=month]').val(this.options.month);
                     $('#year-form').submit();
                   }
@@ -172,13 +181,17 @@
       series: [{
         name: 'Earning',
         data: {{ graph.report }},
-        color: '#2f7eda',
+        color: '#2f7eda'
       }],
       exporting: {
         url: 'http://export.highcharts.com/',
-        enabled: false,
+        enabled: false
       }
-  });
+    });
+
+    setTimeout(function () {
+      if (chart) chart.reflow();
+    }, 100);
   });
 </script>
 {% endautoescape %}
