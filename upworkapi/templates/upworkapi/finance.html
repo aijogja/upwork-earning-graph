@@ -9,6 +9,12 @@
   <div class="col-lg-12">
     <h3 class="mb-3">Earning {{ graph.month }} {{ graph.year }}</h3>
     
+    {% if graph.month %}
+    <a href="/earning" class="btn btn-secondary mb-3">
+      ← Back to Yearly Report
+    </a>
+    {% endif %}
+    
     <form class="form-inline" id="year-form" method="post">
       {% csrf_token %}
       <div class="input-group date mr-sm-1 pl-0 mb-2 col-lg-3" id="year-picker" data-target-input="nearest">
