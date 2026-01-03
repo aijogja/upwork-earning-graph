@@ -7,8 +7,15 @@ from calendar import monthrange, month_name
 from upwork.routers import graphql
 from datetime import datetime, timedelta
 import re
-
-
+from datetime import date
+from oauthlib.oauth2 import InvalidGrantError
+from django.shortcuts import render
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+from decimal import Decimal
+from collections import defaultdict
+import calendar
+import json
 
 def _month_week_ranges(year: int, month: int):
     first = datetime(year, month, 1).date()
@@ -229,8 +236,19 @@ def timereport_weekly(token, year):
         total_hours += hours
         weekly_report.append(hours)
     # threshold
-    weeks_count = len(list_week)
-    avg_week = round(total_hours / weeks_count, 1)
+        selected_year = int(year)
+        today = date.today()
+
+        # pembagi average
+        if selected_year == today.year:
+            divisor_week = today.isocalendar()[1]   # minggu berjalan tahun ini
+        else:
+            divisor_week = last_week                # tahun lampau: total minggu tahun itu (52/53)
+
+        if divisor_week < 1:
+            divisor_week = 1
+
+        avg_week = round(total_hours / divisor_week, 1)
 
     work_status = "success"
     if avg_week < 20:
@@ -244,7 +262,6 @@ def timereport_weekly(token, year):
         "x_axis": list_week,
         "report": weekly_report,
         "total_hours": int(total_hours),
-        "weeks_count": weeks_count,
         "avg_week": avg_week,
         "work_status": work_status,
         "title": "Year : %s" % (year),
@@ -254,29 +271,79 @@ def timereport_weekly(token, year):
 
 
 @login_required(login_url="/")
+def _extract_client_name(detail):
+    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        val = getattr(detail, attr, None)
+        if val:
+            return str(val).strip()
+
+    desc = str(getattr(detail, "description", "")).strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return "Unknown"
+
+def _get(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def _extract_client_name(detail):
+    # detail bisa dict atau object
+    def dget(k):
+        return _get(detail, k, None)
+
+    for k in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        v = dget(k)
+        if v:
+            return str(v).strip()
+
+    desc = str(dget("description") or "").strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return "Unknown"
+
 def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
-    if request.method == "POST":
-        year = request.POST.get("year")
-        month = request.POST.get("month")
-        if not re.match("^[0-9]+$", year) or len(year) != 4:
-            messages.warning(request, "Wrong year format.!")
-            return redirect("earning_graph")
+    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    month = request.POST.get("month")
 
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("earning_graph")
+
+    try:
         if month:
             finreport = earning_graph_monthly(
                 request.session["token"], int(year), int(month)
             )
         else:
-            finreport = earning_graph_annually(request.session["token"], year)
-    else:
-        now = datetime.now()
-        year = str(now.year)
-        finreport = earning_graph_annually(request.session["token"], year)
+            finreport = earning_graph_annually(
+                request.session["token"], str(year)
+            )
 
-    data["graph"] = finreport
-    return render(request, "upworkapi/finance.html", data)
+        data["graph"] = finreport
+        return render(request, "upworkapi/finance.html", data)
+
+    except InvalidGrantError:
+        request.session.pop("token", None)
+        messages.warning(request, "Session expired. Please login again.")
+        return redirect("auth")
+
+    except KeyError:
+        # token tidak ada di session
+        messages.warning(request, "Session missing. Please login again.")
+        return redirect("auth")
 
 
 @login_required(login_url="/")
@@ -295,3 +362,75 @@ def timereport_graph(request):
     timelog = timereport_weekly(request.session["token"], year)
     data["graph"] = timelog
     return render(request, "upworkapi/timereport.html", data)
+
+@login_required(login_url="/")
+def earning_month_client_detail(request, year, month, client_name):
+    qs = (
+        Earning.objects
+        .filter(date__year=year, date__month=month, client_name=client_name)
+        .order_by("date")
+    )
+
+    total = qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.0")))["total"]
+
+    return render(
+        request,
+        "earning/earning_month_client_detail.html",
+        {
+            "year": year,
+            "month": month,
+            "client_name": client_name,
+            "rows": qs,
+            "total": float(total),
+        },
+    )
+
+def _extract_client_name(detail):
+    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        val = getattr(detail, attr, None)
+        if val:
+            return str(val).strip()
+
+    desc = str(getattr(detail, "description", "")).strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^([^:-]{2,60})\s*[:\-]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return desc[:40]
+
+@login_required(login_url="/")
+def earning_month_client_detail(request, year, month, client_name):
+    finreport = earning_graph_monthly(request.session["token"], int(year), int(month))
+
+    rows = []
+    total = 0.0
+
+    if getattr(finreport, "detail_earning", None):
+        for d in finreport.detail_earning:
+            client = _extract_client_name(d)
+            if client == client_name:
+                rows.append(d)
+                total += float(getattr(d, "amount", 0) or 0)
+
+    return render(
+        request,
+        "earning/earning_month_client_detail.html",
+        {
+            "year": year,
+            "month": month,
+            "client_name": client_name,
+            "rows": rows,
+            "total": total,
+        },
+    )
+
+def _extract_client_name(detail):
+    desc = str(_get(detail, "description", "") or "").strip()
+    if not desc:
+        return "Unknown"
+
+    return desc.split(" - ", 1)[0].strip() or "Unknown"
+
