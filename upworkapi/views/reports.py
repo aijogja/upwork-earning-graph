@@ -8,7 +8,13 @@ from upwork.routers import graphql
 from datetime import datetime, timedelta
 import re
 from datetime import date
-
+from django.shortcuts import render
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+from decimal import Decimal
+from collections import defaultdict
+import calendar
+import json
 
 def _month_week_ranges(year: int, month: int):
     first = datetime(year, month, 1).date()
@@ -264,6 +270,47 @@ def timereport_weekly(token, year):
 
 
 @login_required(login_url="/")
+def _extract_client_name(detail):
+    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        val = getattr(detail, attr, None)
+        if val:
+            return str(val).strip()
+
+    desc = str(getattr(detail, "description", "")).strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return "Unknown"
+
+def _get(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def _extract_client_name(detail):
+    # detail bisa dict atau object
+    def dget(k):
+        return _get(detail, k, None)
+
+    for k in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        v = dget(k)
+        if v:
+            return str(v).strip()
+
+    desc = str(dget("description") or "").strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return "Unknown"
+
 def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
@@ -286,6 +333,114 @@ def earning_graph(request):
         finreport = earning_graph_annually(request.session["token"], year)
 
     data["graph"] = finreport
+
+    details = _get(finreport, "detail_earning", None) or []
+    totals = defaultdict(float)
+
+    for d in details:
+        client = _extract_client_name(d)
+
+        raw = _get(d, "amount", 0) or 0
+        s = str(raw).replace("$", "").replace(",", "").strip()
+        amount = float(s) if s else 0.0
+
+        totals[client] += amount
+
+    # buang Unknown kalau tidak mau muncul
+    totals.pop("Unknown", None)
+
+    data["client_rows"] = [
+        {"name": name, "total": float(total)}
+        for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+    ]
+
+    data["client_pie_data"] = json.dumps([
+        {"name": r["name"], "y": float(r["total"])}
+        for r in data["client_rows"]
+        if float(r["total"]) > 0
+    ])
+
+    month_val = _get(finreport, "month", None)
+
+
+    month_num = None
+    if isinstance(month_val, int):
+        month_num = month_val
+    elif isinstance(month_val, str) and month_val.strip():
+        m = month_val.strip()
+
+        try:
+            month_num = list(calendar.month_name).index(m)
+        except ValueError:
+
+            try:
+                month_num = list(calendar.month_abbr).index(m)
+            except ValueError:
+                month_num = None
+
+    data["month_num"] = month_num
+
+
+    if _get(finreport, "month", None):
+
+        details = _get(finreport, "detail_earning", None) or []
+        totals = defaultdict(float)
+
+        for d in details:
+            client = _extract_client_name(d)
+
+            raw = _get(d, "amount", 0) or 0
+
+            s = str(raw).replace("$", "").replace(",", "").strip()
+            try:
+                amount = float(s)
+            except ValueError:
+                amount = 0.0
+
+            totals[client] += amount
+
+        totals.pop("Unknown", None)
+
+        data["client_rows"] = [
+            {"name": name, "total": float(total)}
+            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        data["client_pie_data"] = json.dumps([
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ])
+
+    else:
+        data["client_rows"] = []
+
+
+    if getattr(finreport, "month", None) and getattr(finreport, "detail_earning", None):
+        totals = defaultdict(float)
+
+        for d in finreport.detail_earning:
+            client = _extract_client_name(d)
+            amount = float(getattr(d, "amount", 0) or 0)
+            totals[client] += amount
+
+        data["client_rows"] = [
+            {"name": name, "total": total}
+            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        data["client_pie_data"] = json.dumps([
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data.get("client_rows", [])
+            if float(r["total"]) > 0
+        ])
+
+        raw = _get(d, "amount", 0) or 0
+        s = str(raw).replace("$", "").replace(",", "").strip()
+        amount = float(s) if s else 0.0
+        totals[client] += amount
+
+
     return render(request, "upworkapi/finance.html", data)
 
 
@@ -305,3 +460,75 @@ def timereport_graph(request):
     timelog = timereport_weekly(request.session["token"], year)
     data["graph"] = timelog
     return render(request, "upworkapi/timereport.html", data)
+
+@login_required(login_url="/")
+def earning_month_client_detail(request, year, month, client_name):
+    qs = (
+        Earning.objects
+        .filter(date__year=year, date__month=month, client_name=client_name)
+        .order_by("date")
+    )
+
+    total = qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.0")))["total"]
+
+    return render(
+        request,
+        "earning/earning_month_client_detail.html",
+        {
+            "year": year,
+            "month": month,
+            "client_name": client_name,
+            "rows": qs,
+            "total": float(total),
+        },
+    )
+
+def _extract_client_name(detail):
+    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+        val = getattr(detail, attr, None)
+        if val:
+            return str(val).strip()
+
+    desc = str(getattr(detail, "description", "")).strip()
+    if not desc:
+        return "Unknown"
+
+    m = re.match(r"^([^:-]{2,60})\s*[:\-]\s+.+$", desc)
+    if m:
+        return m.group(1).strip()
+
+    return desc[:40]
+
+@login_required(login_url="/")
+def earning_month_client_detail(request, year, month, client_name):
+    finreport = earning_graph_monthly(request.session["token"], int(year), int(month))
+
+    rows = []
+    total = 0.0
+
+    if getattr(finreport, "detail_earning", None):
+        for d in finreport.detail_earning:
+            client = _extract_client_name(d)
+            if client == client_name:
+                rows.append(d)
+                total += float(getattr(d, "amount", 0) or 0)
+
+    return render(
+        request,
+        "earning/earning_month_client_detail.html",
+        {
+            "year": year,
+            "month": month,
+            "client_name": client_name,
+            "rows": rows,
+            "total": total,
+        },
+    )
+
+def _extract_client_name(detail):
+    desc = str(_get(detail, "description", "") or "").strip()
+    if not desc:
+        return "Unknown"
+
+    return desc.split(" - ", 1)[0].strip() or "Unknown"
+
