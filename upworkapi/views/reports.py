@@ -45,66 +45,79 @@ def _month_week_ranges(year: int, month: int):
 
 def earning_graph_annually(token, year):
     client = upwork_client.get_client(token)
-    list_month = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
+
+    list_month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+    start_date = f"{year}0101"
+    end_date   = f"{year}1231"
 
     query = """query User {
-            user {
-                freelancerProfile {
-                    user {
-                        timeReport(timeReportDate_bt: { rangeStart: "%s0101", rangeEnd: "%s1231" }) {
-                            dateWorkedOn
-                            totalCharges
-                            task
-                            memo
+        user {
+            freelancerProfile {
+                user {
+                    timeReport(timeReportDate_bt: { rangeStart: "%s", rangeEnd: "%s" }) {
+                        dateWorkedOn
+                        totalCharges
+                        memo
+                        contract {
+                            offer {
+                                client { name }
+                            }
                         }
                     }
                 }
             }
         }
-    """ % (
-        year,
-        year,
-    )
+    }""" % (start_date, end_date)
+
     response = graphql.Api(client).execute({"query": query})
+    rows = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
 
-    list_earning = []
-    total_earning = 0
-    earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
-    for k, v in enumerate(list_month, start=1):
-        month_earn = 0
-        total = 0
-        for m in earning_report:
-            if int(m["dateWorkedOn"][5:-3]) == k:
-           
-                total = total + float(m["totalCharges"])
-        month_earn = round(total, 2)
-        total_earning = round(total_earning + total, 2)
-        list_earning.append({"y": month_earn, "month": str(k)})
+    # monthly totals
+    month_totals = {i: 0.0 for i in range(1, 13)}
+    total_earning = 0.0
 
+    # IMPORTANT: yearly detail_earning for pie aggregation
+    detail = []
+
+    for r in rows:
+        dt = datetime.strptime(r["dateWorkedOn"], "%Y-%m-%d").date()
+        amt = float((r.get("totalCharges") or 0) or 0)
+
+        month_totals[dt.month] += amt
+        total_earning += amt
+
+        client_name = (
+            (((r.get("contract") or {}).get("offer") or {}).get("client") or {}).get("name")
+            or "Unknown"
+        )
+
+        memo = r.get("memo") or ""
+        detail.append({
+            "date": r["dateWorkedOn"],
+            "month": str(dt.month),
+            "amount": r.get("totalCharges") or 0,
+            "description": f"{client_name} - {memo}",
+            "client_name": client_name,
+        })
+
+    report = [{"y": round(month_totals[i], 2), "month": str(i)} for i in range(1, 13)]
+
+    total_earning = round(total_earning, 2)
     tooltip = "'<b>'+this.x+'</b><br/>'+this.series.name+': $ '+this.y"
-    data = {
+
+    return {
         "year": year,
         "x_axis": list_month,
-        "report": list_earning,
+        "report": report,
+        "detail_earning": detail,
         "total_earning": total_earning,
         "charity": round(total_earning * 0.025, 2),
         "title": "Year : %s ($ %s)" % (year, total_earning),
         "tooltip": tooltip,
     }
-    return data
+
+
 
 
 def earning_graph_monthly(token, year, month):
@@ -346,7 +359,10 @@ def earning_graph(request):
 
             totals[client] += amount
 
-        totals.pop("Unknown", None)
+       
+        if len(totals) > 1:
+            totals.pop("Unknown", None)
+
 
         data["client_rows"] = [
             {"name": name, "total": float(total)}
