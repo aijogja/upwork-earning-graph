@@ -145,43 +145,66 @@
       title: { text: '{{ page_title }}' },
       subtitle: { text: '{{ graph.title }}' },
       xAxis: { categories: {{ graph.x_axis }} },
-      yAxis: {
-        title: { text: 'Dollar ($)' }
-      },
+      yAxis: { title: { text: 'Dollar ($)' } },
+
       tooltip: {
-        formatter: function () { return {{ graph.tooltip }}; }
+        formatter: function() {
+          return {{ graph.tooltip }}
+        }
       },
       plotOptions: {
-        series: {
-          cursor: 'pointer',
-          point: {
-            events: {
-              click: function() {
-                if (this.options.month) {
-                  var ok = confirm("You are request to check detail month earning.");
-                  if (ok) {
-                    $('input[name=month]').val(this.options.month);
-                    $('#year-form').submit();
-                  }
-                }
-              }
+        column: {
+          stacking: 'normal',
+          dataLabels: {
+            enabled: true,
+            inside: false,         
+            verticalAlign: 'top',  
+            y: -20,                 
+            crop: false,
+            overflow: 'allow',
+            formatter: function () {
+              if (!this.y) return '';
+              return Highcharts.numberFormat(this.y, 0);
+            },
+            style: {  
+            fontWeight: 'bold',
+            color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
+            }
+          }
+        },
+  series: {
+    cursor: 'pointer',
+    point: {
+      events: {
+        click: function () {
+          if (this.options.month) {
+            var check_conf = confirm("You are request to check detail month earning.");
+            if (check_conf) {
+              $('input[name=month]').val(this.options.month);
+              $('#year-form').submit();
             }
           }
         }
-      },
+      }
+    }
+  }
+},
       series: [{
         name: 'Earning',
         data: {{ graph.report }},
-        color: '#2f7eda'
+        color: '#2f7eda',
       }],
-      exporting: { enabled: false }
-    });
-
-    setTimeout(function () { if (chart) chart.reflow(); }, 100);
+      exporting: {
+        url: 'http://export.highcharts.com/',
+        enabled: false,
+      }
+  });
   });
 </script>
 {% endautoescape %}
 
+
+{% autoescape off %}
 {% if graph.month %}
 <script>
   $(function () {
@@ -240,5 +263,5 @@
   });
 </script>
 {% endif %}
-
+{% endautoescape %}
 {% endblock js_extra %}

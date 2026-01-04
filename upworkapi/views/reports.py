@@ -25,8 +25,8 @@ def _month_week_ranges(year: int, month: int):
         next_month = datetime(year, month + 1, 1).date()
     last = next_month - timedelta(days=1)
 
-    start = first - timedelta(days=first.weekday())      # Monday
-    end = last + timedelta(days=(6 - last.weekday()))    # Sunday
+    start = first - timedelta(days=first.weekday())      
+    end = last + timedelta(days=(6 - last.weekday()))    
 
     ranges = []
     w = 1
@@ -59,7 +59,7 @@ def earning_graph_annually(token, year):
         "Nov",
         "Dec",
     ]
-    # query
+
     query = """query User {
             user {
                 freelancerProfile {
@@ -79,7 +79,7 @@ def earning_graph_annually(token, year):
         year,
     )
     response = graphql.Api(client).execute({"query": query})
-    # processing data
+
     list_earning = []
     total_earning = 0
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
@@ -88,7 +88,7 @@ def earning_graph_annually(token, year):
         total = 0
         for m in earning_report:
             if int(m["dateWorkedOn"][5:-3]) == k:
-                # compare number of month
+           
                 total = total + float(m["totalCharges"])
         month_earn = round(total, 2)
         total_earning = round(total_earning + total, 2)
@@ -145,7 +145,7 @@ def earning_graph_monthly(token, year, month):
     week_ranges = _month_week_ranges(year, month)
     x_axis = [wlabel for (wlabel, _, _) in week_ranges]
 
-    # init buckets
+ 
     week_totals = {wlabel: 0.0 for wlabel in x_axis}
     list_report = []
     total_earning = 0.0
@@ -154,7 +154,6 @@ def earning_graph_monthly(token, year, month):
         d = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").date()
         amt = float(m["totalCharges"])
 
-        # find which week range contains the date
         for (wlabel, ws, we) in week_ranges:
             if ws <= d <= we:
                 week_totals[wlabel] += amt
@@ -191,7 +190,6 @@ def earning_graph_monthly(token, year, month):
 
 def timereport_weekly(token, year):
     client = upwork_client.get_client(token)
-    # mapping weeks
     current_week = datetime.now().isocalendar()[1] - 1
     if current_week == 0:
         current_week = 1
@@ -199,7 +197,6 @@ def timereport_weekly(token, year):
     if last_week == 1:
         last_week = 52
     list_week = [str(i) for i in range(1, last_week + 1)]
-    # query
     query = """query User {
             user {
                 freelancerProfile {
@@ -217,7 +214,7 @@ def timereport_weekly(token, year):
         year,
     )
     response = graphql.Api(client).execute({"query": query})
-    # processing data
+
     weeks = {}
     total_hours = 0
     weekly_report = []
@@ -235,15 +232,15 @@ def timereport_weekly(token, year):
             hours = 0
         total_hours += hours
         weekly_report.append(hours)
-    # threshold
+
         selected_year = int(year)
         today = date.today()
 
-        # pembagi average
+
         if selected_year == today.year:
-            divisor_week = today.isocalendar()[1]   # minggu berjalan tahun ini
+            divisor_week = today.isocalendar()[1]  
         else:
-            divisor_week = last_week                # tahun lampau: total minggu tahun itu (52/53)
+            divisor_week = last_week               
 
         if divisor_week < 1:
             divisor_week = 1
@@ -293,7 +290,6 @@ def _get(obj, key, default=None):
     return getattr(obj, key, default)
 
 def _extract_client_name(detail):
-    # detail bisa dict atau object
     def dget(k):
         return _get(detail, k, None)
 
@@ -333,6 +329,35 @@ def earning_graph(request):
             )
 
         data["graph"] = finreport
+        graph_obj = data["graph"]  
+        details = _get(graph_obj, "detail_earning", None) or []
+
+        totals = defaultdict(float)
+
+        for d in details:
+            client = _extract_client_name(d)
+
+            raw = _get(d, "amount", 0) or 0
+            s = str(raw).replace("$", "").replace(",", "").strip()
+            try:
+                amount = float(s)
+            except ValueError:
+                amount = 0.0
+
+            totals[client] += amount
+
+        totals.pop("Unknown", None)
+
+        data["client_rows"] = [
+            {"name": name, "total": float(total)}
+            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        data["client_pie_data"] = json.dumps([
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ])
         return render(request, "upworkapi/finance.html", data)
 
     except InvalidGrantError:
@@ -341,7 +366,7 @@ def earning_graph(request):
         return redirect("auth")
 
     except KeyError:
-        # token tidak ada di session
+    
         messages.warning(request, "Session missing. Please login again.")
         return redirect("auth")
 
