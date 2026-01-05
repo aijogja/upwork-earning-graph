@@ -261,6 +261,61 @@
             }
           }
         },
+        responsive: {
+          rules: [{
+            condition: { maxWidth: 576 },
+            chartOptions: {
+                chart: {
+                  type: 'pie',
+                  spacingTop: 10,
+                  spacingBottom: 10,
+                  spacingLeft: 60,
+                  spacingRight: 60
+                },
+              plotOptions: {
+                pie: {
+                  innerSize: '55%',
+                  size: '70%',
+                  showInLegend: false,
+                  allowPointSelect: true,
+                  cursor: 'pointer',
+
+                  dataLabels: {
+                    enabled: true,
+                    useHTML: false,        
+                    distance: 18,           
+                    connectorPadding: 6,
+                    connectorWidth: 1,
+                    softConnector: true,
+
+                    crop: false,
+                    overflow: 'justify',     
+                      fontSize: '8px',
+                      textOutline: 'none'
+                    },
+
+                    formatter: function () {
+                      var n = this.point.name || '';
+                      if (n.length > 16) n = n.slice(0, 16) + '…';
+                      return n + '</b><br/>' + Highcharts.numberFormat(this.percentage, 0) + '%';
+                    }
+                  }
+                }
+              },
+            }
+          }, {
+            condition: { maxWidth: 380 },
+            chartOptions: {
+              chart: { height: 300 },
+              plotOptions: {
+                pie: {
+                  dataLabels: { distance: -18 }
+                }
+              }
+            }
+          }]
+        },
+
         series: [{ name: 'Earning', data: pieData }],
         exporting: { enabled: false }
       });
@@ -327,6 +382,61 @@
             }
           }
         },
+        responsive: {
+          rules: [{
+            condition: { maxWidth: 576 },
+            chartOptions: {
+                chart: {
+                  type: 'pie',
+                  spacingTop: 10,
+                  spacingBottom: 10,
+                  spacingLeft: 60,
+                  spacingRight: 60
+                },
+              plotOptions: {
+                pie: {
+                  innerSize: '55%',
+                  size: '70%',
+                  showInLegend: false,
+                  allowPointSelect: true,
+                  cursor: 'pointer',
+
+                  dataLabels: {
+                    enabled: true,
+                    useHTML: false,         
+                    distance: 18,           
+                    connectorPadding: 6,
+                    connectorWidth: 1,
+                    softConnector: true,
+
+                    crop: false,
+                    overflow: 'justify',    
+                    style: {
+                      fontSize: '8px',
+                      textOutline: 'none'
+                    },
+
+                    formatter: function () {
+                      var n = this.point.name || '';
+                      if (n.length > 16) n = n.slice(0, 16) + '…';
+                      return n + '</b><br/>' + Highcharts.numberFormat(this.percentage, 0) + '%';
+                    }
+                  }
+                }
+              },
+            }
+              }, {
+                condition: { maxWidth: 380 },
+                chartOptions: {
+                  chart: { height: 300 },
+                  plotOptions: {
+                    pie: {
+                      dataLabels: { distance: -18 }
+                    }
+                  }
+                }
+              }]
+            },
         series: [{
           name: 'Earning',
           data: pieData
