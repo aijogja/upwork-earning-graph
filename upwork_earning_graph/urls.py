@@ -22,17 +22,13 @@ from upworkapi.views import auth, reports, debug
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", home, name="home"),
-    path("about", about, name="about"),
-    path("contact", contact, name="contact"),
+    path("about/", about, name="about"),
+    path("contact/", contact, name="contact"),
 
-    path("auth", auth.auth_view, name="auth"),
+    path("auth/", auth.auth_view, name="auth"),
     path("callback/", auth.callback, name="callback"),
-    path("logout", auth.disconnect, name="logout"),
-
-    path("earning", reports.earning_graph, name="earning_graph"),
+    path("logout/", auth.disconnect, name="logout"),
     path("earning/", reports.earning_graph, name="earning_graph"),
-
-    path("timereport", reports.timereport_graph, name="timereport_graph"),
     path("timereport/", reports.timereport_graph, name="timereport_graph"),
     
     path(
@@ -41,5 +37,5 @@ urlpatterns = [
         name="earning_month_client_detail",
     ),
 
-    path("debug/session", debug.session_dump),
+    path("debug/session/", debug.session_dump),
 ]

@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 from upworkapi.utils import upwork_client
 import traceback
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBadRequest
 import json
 
 
