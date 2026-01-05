@@ -237,23 +237,27 @@ $(function () {
       return;
     }
 
-    var monthlyPie = Highcharts.chart('client_pie', {
-      chart: {
-        type: 'pie',
-        height: 520,
-        spacing: [10, 40, 10, 40]
-      },
+      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-      title: {
-        text: 'Earning per Client {{ graph.month }} {{ graph.year }}'
+    Highcharts.chart('client_pie', {
+      chart: { type: 'pie' },
+      title: { text: null },
+      subtitle: {
+        text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+        align: 'center',
+        verticalAlign: 'middle',
+        y: 10,
+        useHTML: true
       },
-
+        
       tooltip: { enabled: false },
 
           // Desktop pie chart style monthly
 
       plotOptions: {
         pie: {
+          startAngle: -140,
+          endAngle: 220,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -347,26 +351,24 @@ $(function () {
       return;
     }
 
-    var yearlyPie = Highcharts.chart('client_pie_yearly', {
-      chart: {
-        type: 'pie',
-        height: 520,
-        spacing: [10, 40, 10, 40]
-      },
+      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-      title: {
-        text: 'Earning per Client {{ graph.year }}'
-      },
-
+      Highcharts.chart('client_pie_yearly', {
+        chart: { type: 'pie' },
+        title: { text: null },
+        subtitle: {
+          text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+          align: 'center',
+          verticalAlign: 'middle',
+          y: 10,
+          useHTML: true
+        },
       tooltip: { enabled: false },
-
-
-
-          // Desktop pie chart style yearly
-
 
       plotOptions: {
         pie: {
+          startAngle: -140,
+          endAngle: 220,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -391,8 +393,6 @@ $(function () {
           }
         }
       },
-
-      // Mobile pie chart style yearly
 
       responsive: {
         rules: [{
@@ -436,7 +436,7 @@ $(function () {
         name: 'Earning',
         data: pieData
       }],
-
+      
       exporting: { enabled: false }
     });
 
