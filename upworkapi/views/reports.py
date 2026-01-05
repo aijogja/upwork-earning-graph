@@ -17,6 +17,7 @@ from collections import defaultdict
 import calendar
 import json
 
+
 def _month_week_ranges(year: int, month: int):
     first = datetime(year, month, 1).date()
     if month == 12:
@@ -25,8 +26,8 @@ def _month_week_ranges(year: int, month: int):
         next_month = datetime(year, month + 1, 1).date()
     last = next_month - timedelta(days=1)
 
-    start = first - timedelta(days=first.weekday())      
-    end = last + timedelta(days=(6 - last.weekday()))    
+    start = first - timedelta(days=first.weekday())
+    end = last + timedelta(days=(6 - last.weekday()))
 
     ranges = []
     w = 1
@@ -46,10 +47,23 @@ def _month_week_ranges(year: int, month: int):
 def earning_graph_annually(token, year):
     client = upwork_client.get_client(token)
 
-    list_month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    list_month = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
 
     start_date = f"{year}0101"
-    end_date   = f"{year}1231"
+    end_date = f"{year}1231"
 
     query = """query User {
         user {
@@ -68,7 +82,10 @@ def earning_graph_annually(token, year):
                 }
             }
         }
-    }""" % (start_date, end_date)
+    }""" % (
+        start_date,
+        end_date,
+    )
 
     response = graphql.Api(client).execute({"query": query})
     rows = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
@@ -88,18 +105,19 @@ def earning_graph_annually(token, year):
         total_earning += amt
 
         client_name = (
-            (((r.get("contract") or {}).get("offer") or {}).get("client") or {}).get("name")
-            or "Unknown"
-        )
+            ((r.get("contract") or {}).get("offer") or {}).get("client") or {}
+        ).get("name") or "Unknown"
 
         memo = r.get("memo") or ""
-        detail.append({
-            "date": r["dateWorkedOn"],
-            "month": str(dt.month),
-            "amount": r.get("totalCharges") or 0,
-            "description": f"{client_name} - {memo}",
-            "client_name": client_name,
-        })
+        detail.append(
+            {
+                "date": r["dateWorkedOn"],
+                "month": str(dt.month),
+                "amount": r.get("totalCharges") or 0,
+                "description": f"{client_name} - {memo}",
+                "client_name": client_name,
+            }
+        )
 
     report = [{"y": round(month_totals[i], 2), "month": str(i)} for i in range(1, 13)]
 
@@ -116,8 +134,6 @@ def earning_graph_annually(token, year):
         "title": "Year : %s ($ %s)" % (year, total_earning),
         "tooltip": tooltip,
     }
-
-
 
 
 def earning_graph_monthly(token, year, month):
@@ -149,7 +165,10 @@ def earning_graph_monthly(token, year, month):
                 }
             }
         }
-    """ % (start_date, end_date)
+    """ % (
+        start_date,
+        end_date,
+    )
 
     response = graphql.Api(client).execute({"query": query})
 
@@ -158,7 +177,6 @@ def earning_graph_monthly(token, year, month):
     week_ranges = _month_week_ranges(year, month)
     x_axis = [wlabel for (wlabel, _, _) in week_ranges]
 
- 
     week_totals = {wlabel: 0.0 for wlabel in x_axis}
     list_report = []
     total_earning = 0.0
@@ -167,7 +185,7 @@ def earning_graph_monthly(token, year, month):
         d = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").date()
         amt = float(m["totalCharges"])
 
-        for (wlabel, ws, we) in week_ranges:
+        for wlabel, ws, we in week_ranges:
             if ws <= d <= we:
                 week_totals[wlabel] += amt
                 list_report.append(
@@ -195,7 +213,8 @@ def earning_graph_monthly(token, year, month):
         "detail_earning": list_report,
         "total_earning": total_earning,
         "charity": round(total_earning * 0.025, 2),
-        "title": "Month : %s %s ($ %s)" % (month_name[int(month_str)], year_str, total_earning),
+        "title": "Month : %s %s ($ %s)"
+        % (month_name[int(month_str)], year_str, total_earning),
         "tooltip": tooltip,
     }
     return data
@@ -249,11 +268,10 @@ def timereport_weekly(token, year):
         selected_year = int(year)
         today = date.today()
 
-
         if selected_year == today.year:
-            divisor_week = today.isocalendar()[1]  
+            divisor_week = today.isocalendar()[1]
         else:
-            divisor_week = last_week               
+            divisor_week = last_week
 
         if divisor_week < 1:
             divisor_week = 1
@@ -282,7 +300,14 @@ def timereport_weekly(token, year):
 
 @login_required(login_url="/")
 def _extract_client_name(detail):
-    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+    for attr in (
+        "client_name",
+        "client",
+        "buyer",
+        "team_name",
+        "organization",
+        "company",
+    ):
         val = getattr(detail, attr, None)
         if val:
             return str(val).strip()
@@ -297,10 +322,12 @@ def _extract_client_name(detail):
 
     return "Unknown"
 
+
 def _get(obj, key, default=None):
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
 
 def _extract_client_name(detail):
     def dget(k):
@@ -321,10 +348,13 @@ def _extract_client_name(detail):
 
     return "Unknown"
 
+
 def earning_graph(request):
     data = {"page_title": "Earning Graph"}
 
-    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    year = (
+        request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    )
     month = request.POST.get("month")
 
     if not re.match(r"^\d{4}$", str(year)):
@@ -337,12 +367,10 @@ def earning_graph(request):
                 request.session["token"], int(year), int(month)
             )
         else:
-            finreport = earning_graph_annually(
-                request.session["token"], str(year)
-            )
+            finreport = earning_graph_annually(request.session["token"], str(year))
 
         data["graph"] = finreport
-        graph_obj = data["graph"]  
+        graph_obj = data["graph"]
         details = _get(graph_obj, "detail_earning", None) or []
 
         totals = defaultdict(float)
@@ -359,21 +387,21 @@ def earning_graph(request):
 
             totals[client] += amount
 
-       
         if len(totals) > 1:
             totals.pop("Unknown", None)
-
 
         data["client_rows"] = [
             {"name": name, "total": float(total)}
             for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
         ]
 
-        data["client_pie_data"] = json.dumps([
-            {"name": r["name"], "y": float(r["total"])}
-            for r in data["client_rows"]
-            if float(r["total"]) > 0
-        ])
+        data["client_pie_data"] = json.dumps(
+            [
+                {"name": r["name"], "y": float(r["total"])}
+                for r in data["client_rows"]
+                if float(r["total"]) > 0
+            ]
+        )
         return render(request, "upworkapi/finance.html", data)
 
     except InvalidGrantError:
@@ -382,7 +410,7 @@ def earning_graph(request):
         return redirect("auth")
 
     except KeyError:
-    
+
         messages.warning(request, "Session missing. Please login again.")
         return redirect("auth")
 
@@ -404,13 +432,12 @@ def timereport_graph(request):
     data["graph"] = timelog
     return render(request, "upworkapi/timereport.html", data)
 
+
 @login_required(login_url="/")
 def earning_month_client_detail(request, year, month, client_name):
-    qs = (
-        Earning.objects
-        .filter(date__year=year, date__month=month, client_name=client_name)
-        .order_by("date")
-    )
+    qs = Earning.objects.filter(
+        date__year=year, date__month=month, client_name=client_name
+    ).order_by("date")
 
     total = qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.0")))["total"]
 
@@ -426,8 +453,16 @@ def earning_month_client_detail(request, year, month, client_name):
         },
     )
 
+
 def _extract_client_name(detail):
-    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
+    for attr in (
+        "client_name",
+        "client",
+        "buyer",
+        "team_name",
+        "organization",
+        "company",
+    ):
         val = getattr(detail, attr, None)
         if val:
             return str(val).strip()
@@ -441,6 +476,7 @@ def _extract_client_name(detail):
         return m.group(1).strip()
 
     return desc[:40]
+
 
 @login_required(login_url="/")
 def earning_month_client_detail(request, year, month, client_name):
@@ -468,10 +504,10 @@ def earning_month_client_detail(request, year, month, client_name):
         },
     )
 
+
 def _extract_client_name(detail):
     desc = str(_get(detail, "description", "") or "").strip()
     if not desc:
         return "Unknown"
 
     return desc.split(" - ", 1)[0].strip() or "Unknown"
-
