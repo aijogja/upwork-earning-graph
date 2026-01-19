@@ -96,7 +96,7 @@
     </div>
     {% endif %}
 
-    {% if graph.detail_earning %}
+    {% if graph.detail_earning and graph.month %}
     <div class="row mt-5">
       <div class="col-lg-12">
         <h3>Earning Detail</h3>
@@ -131,11 +131,7 @@
         </table>
       </div>
     </div>
-    {% endif %}
-
-  </div>
-</div>
-
+  {% endif %}
 
 {% endblock %}
 
