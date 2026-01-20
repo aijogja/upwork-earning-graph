@@ -16,6 +16,9 @@ from decimal import Decimal
 from collections import defaultdict
 import calendar
 import json
+from upworkapi.services.transactions import fetch_fixed_price_transactions
+
+
 
 def _month_week_ranges(year: int, month: int):
     first = datetime(year, month, 1).date()
@@ -302,6 +305,19 @@ def _get(obj, key, default=None):
         return obj.get(key, default)
     return getattr(obj, key, default)
 
+def _profile_key_from_url(url):
+    if not url:
+        return None
+    s = str(url)
+    if "~" in s:
+        return "~" + s.split("~", 1)[1].split("/", 1)[0]
+    parts = [p for p in s.split("/") if p]
+    if parts:
+        last = parts[-1]
+        if last.startswith("~"):
+            return last
+    return None
+
 def _extract_client_name(detail):
     def dget(k):
         return _get(detail, k, None)
@@ -385,6 +401,237 @@ def earning_graph(request):
     
         messages.warning(request, "Session missing. Please login again.")
         return redirect("auth")
+
+@login_required(login_url="/")
+def fixed_price_graph(request):
+
+    data = {"page_title": "Fixed Price & Bonus"}
+
+    year = request.GET.get("year") or str(datetime.now().year)
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("fixed_price_graph")
+
+
+    start_dt = date(int(year), 1, 1)
+    end_dt = date(int(year), 12, 31)
+
+    token = request.session.get("token")
+    tenant_id = request.session.get("tenant_id")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+
+    debug = False
+    try:
+        freelancer_reference = (
+            request.session.get("freelancer_reference")
+            or _profile_key_from_url((request.session.get("upwork_auth") or {}).get("profile_url"))
+            or request.user.username
+        )
+        fetch_result = fetch_fixed_price_transactions(
+            token=token,
+            freelancer_reference=freelancer_reference,
+            tenant_id=tenant_id,
+            start_date=start_dt,
+            end_date=end_dt,
+            debug=debug,
+        )
+        if debug:
+            rows, debug_info = fetch_result
+            data["debug_info"] = debug_info
+        else:
+            rows = fetch_result
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        rows = []
+        if debug:
+            data["debug_info"] = {"error": str(exc)}
+
+
+    clean = []
+    total = 0.0
+
+    for r in rows:
+        occurred_at = (r.get("occurred_at") or "")[:10]
+        amt = float(r.get("amount") or 0.0)
+        if amt == 0:
+            continue
+
+        client = r.get("client_name") or "Unknown"
+        kind = r.get("kind") or ""
+        desc = r.get("description") or ""
+
+        clean.append({
+            "date": occurred_at,
+            "client": client,
+            "kind": kind,
+            "description": desc,
+            "amount": amt,
+        })
+        total += amt
+
+
+    clean.sort(key=lambda x: x["date"] or "")
+
+    data["year"] = year
+    data["rows"] = clean
+    data["total"] = round(total, 2)
+    data["show_detail_table"] = len(clean) <= 20
+
+
+    per_client = defaultdict(float)
+    for x in clean:
+        per_client[x["client"]] += float(x["amount"] or 0)
+
+    data["client_rows"] = [
+        {"name": k, "total": round(v, 2)}
+        for k, v in sorted(per_client.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    data["client_pie_data"] = json.dumps([
+        {"name": r["name"], "y": float(r["total"])}
+        for r in data["client_rows"]
+        if float(r["total"]) > 0
+    ])
+
+
+    monthly = {m: 0.0 for m in range(1, 13)}
+    for x in clean:
+        try:
+            dt = datetime.strptime(x["date"], "%Y-%m-%d").date()
+            monthly[dt.month] += float(x["amount"] or 0)
+        except Exception:
+            pass
+
+    data["x_axis"] = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    data["report"] = [
+        {"y": round(monthly[i], 2), "month": i}
+        for i in range(1, 13)
+    ]
+    data["tooltip"] = "'<b>'+this.x+'</b><br/>$ '+this.y"
+
+    return render(request, "upworkapi/fixed_price.html", data)
+
+
+@login_required(login_url="/")
+def fixed_price_month_detail(request, year, month):
+    data = {"page_title": "Fixed Price & Bonus"}
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("fixed_price_graph")
+
+    if int(month) < 1 or int(month) > 12:
+        messages.warning(request, "Wrong month format.!")
+        return redirect("fixed_price_graph")
+
+    start_dt = date(int(year), int(month), 1)
+    end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+
+    token = request.session.get("token")
+    tenant_id = request.session.get("tenant_id")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    try:
+        freelancer_reference = (
+            request.session.get("freelancer_reference")
+            or _profile_key_from_url((request.session.get("upwork_auth") or {}).get("profile_url"))
+            or request.user.username
+        )
+        rows = fetch_fixed_price_transactions(
+            token=token,
+            freelancer_reference=freelancer_reference,
+            tenant_id=tenant_id,
+            start_date=start_dt,
+            end_date=end_dt,
+        )
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        rows = []
+
+    clean = []
+    total = 0.0
+
+    for r in rows:
+        occurred_at = (r.get("occurred_at") or "")[:10]
+        amt = float(r.get("amount") or 0.0)
+        if amt == 0:
+            continue
+
+        client = r.get("client_name") or r.get("client") or "Unknown"
+        kind = r.get("kind") or ""
+        desc = r.get("description") or ""
+
+        clean.append({
+            "date": occurred_at,
+            "client": client,
+            "kind": kind,
+            "description": desc,
+            "amount": amt,
+        })
+        total += amt
+
+    clean.sort(key=lambda x: x["date"] or "")
+
+    month_name = calendar.month_name[int(month)]
+
+    week_ranges = _month_week_ranges(int(year), int(month))
+    x_axis = [wlabel for (wlabel, _, _) in week_ranges]
+    week_totals = {wlabel: 0.0 for wlabel in x_axis}
+
+    for item in clean:
+        try:
+            d = datetime.strptime(item["date"], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        for (wlabel, ws, we) in week_ranges:
+            if ws <= d <= we:
+                week_totals[wlabel] += float(item["amount"] or 0)
+                break
+
+    detail_rows = []
+    for item in clean:
+        detail_rows.append({
+            "date": item["date"],
+            "description": f'{item["client"]} - {item["description"]}',
+            "amount": item["amount"],
+        })
+
+    graph = {
+        "month": month_name,
+        "year": str(year),
+        "x_axis": x_axis,
+        "report": [round(week_totals[w], 2) for w in x_axis],
+        "detail_earning": detail_rows,
+        "total_earning": round(total, 2),
+        "charity": round(total * 0.025, 2),
+        "title": "Month : %s %s ($ %s)" % (
+            month_name,
+            year,
+            round(total, 2),
+        ),
+        "tooltip": "'<b>Week : </b>'+this.x+'<br/>'+this.series.name+': $ '+this.y",
+    }
+    data["graph"] = graph
+
+    per_client = defaultdict(float)
+    for item in clean:
+        per_client[item["client"]] += float(item["amount"] or 0)
+
+    data["client_rows"] = [
+        {"name": k, "total": round(v, 2)}
+        for k, v in sorted(per_client.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    data["client_pie_data"] = json.dumps([
+        {"name": r["name"], "y": float(r["total"])}
+        for r in data["client_rows"]
+        if float(r["total"]) > 0
+    ])
+
+    return render(request, "upworkapi/fixed_price_month_detail.html", data)
 
 
 @login_required(login_url="/")
@@ -474,4 +721,3 @@ def _extract_client_name(detail):
         return "Unknown"
 
     return desc.split(" - ", 1)[0].strip() or "Unknown"
-

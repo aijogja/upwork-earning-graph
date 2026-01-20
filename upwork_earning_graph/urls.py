@@ -19,6 +19,7 @@ from django.urls import path
 from .views import home, about, contact
 from upworkapi.views import auth, reports, debug
 
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", home, name="home"),
@@ -42,4 +43,8 @@ urlpatterns = [
     ),
 
     path("debug/session", debug.session_dump),
+
+    path("earning/fixed", reports.fixed_price_graph, name="fixed_price_graph"),
+    path("earning/fixed/<int:year>/<int:month>", reports.fixed_price_month_detail, name="fixed_price_month_detail"),
+
 ]
