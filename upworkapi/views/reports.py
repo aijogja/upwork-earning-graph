@@ -263,13 +263,17 @@ def earning_graph_monthly(token, year, month):
         for wlabel, ws, we in week_ranges:
             if ws <= d <= we:
                 week_totals[wlabel] += amt
+                contract = m.get("contract") or {}
+                client_name = ((contract.get("offer") or {}).get("client") or {}).get(
+                    "name"
+                ) or "Unknown"
                 list_report.append(
                     {
                         "date": m["dateWorkedOn"],
                         "week": wlabel,
                         "amount": m["totalCharges"],
-                        "description": "%s - %s"
-                        % (m["contract"]["offer"]["client"]["name"], m["memo"]),
+                        "description": "%s - %s" % (client_name, m["memo"]),
+                        "client_name": client_name,
                     }
                 )
                 break
@@ -406,9 +410,17 @@ def _extract_client_name(detail):
     if not desc:
         return "Unknown"
 
-    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
+    for sep in (" - ", " -", " – ", " — ", ": "):
+        if sep in desc:
+            left = desc.split(sep, 1)[0].strip()
+            if left:
+                return left
+
+    m = re.match(r"^(.+?)\s*[-:]\s*.*$", desc)
     if m:
-        return m.group(1).strip()
+        left = m.group(1).strip()
+        if left:
+            return left
 
     return "Unknown"
 
@@ -419,6 +431,32 @@ def _normalize_client_name(name: str) -> str:
     cleaned = re.sub(r"\s*[-:–—]+$", "", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
     return cleaned or "Unknown"
+
+
+def _client_from_detail(detail):
+    client = _get(detail, "client_name")
+    if not client or str(client).strip().lower() == "unknown":
+        client = _extract_client_name(detail)
+    return _normalize_client_name(client)
+
+
+def _client_from_fixed(detail):
+    client = _get(detail, "client_name") or _get(detail, "client")
+    if not client or str(client).strip().lower() == "unknown":
+        client = _get(detail, "description") or "Unknown"
+    return _normalize_client_name(client)
+
+
+def _accumulate_client_totals(client_totals, details):
+    for d in details:
+        client = _client_from_detail(d)
+        raw = _get(d, "amount", 0) or 0
+        s = str(raw).replace("$", "").replace(",", "").strip()
+        try:
+            amount = float(s)
+        except ValueError:
+            amount = 0.0
+        client_totals[client] += amount
 
 
 def _build_total_earning_data(
@@ -473,18 +511,9 @@ def _build_total_earning_data(
         fixed_total += amt
 
     client_totals = defaultdict(float)
-    for d in hourly_graph.get("detail_earning") or []:
-        client = _normalize_client_name(_extract_client_name(d))
-        raw = d.get("amount", 0) or 0
-        s = str(raw).replace("$", "").replace(",", "").strip()
-        try:
-            amount = float(s)
-        except ValueError:
-            amount = 0.0
-        client_totals[client] += amount
-
+    _accumulate_client_totals(client_totals, hourly_graph.get("detail_earning") or [])
     for f in fixed_clean:
-        client_totals[f["client_name"]] += float(f["amount"] or 0)
+        client_totals[_client_from_fixed(f)] += float(f["amount"] or 0)
 
     detail = []
     if include_detail:
@@ -627,20 +656,7 @@ def earning_graph(request):
         details = _get(graph_obj, "detail_earning", None) or []
 
         totals = defaultdict(float)
-        for d in details:
-            client = _extract_client_name(d)
-
-            raw = _get(d, "amount", 0) or 0
-            s = str(raw).replace("$", "").replace(",", "").strip()
-            try:
-                amount = float(s)
-            except ValueError:
-                amount = 0.0
-
-            totals[client] += amount
-
-        if len(totals) > 1:
-            totals.pop("Unknown", None)
+        _accumulate_client_totals(totals, details)
 
         data["client_rows"] = [
             {"name": name, "total": float(total)}
@@ -736,15 +752,9 @@ def all_time_earning_graph(request):
         for y in years:
             hourly_graph = _cached_earning_graph_annually(request, token, str(y))
             hourly_total = float(hourly_graph.get("total_earning") or 0)
-            for d in hourly_graph.get("detail_earning") or []:
-                client = _normalize_client_name(_extract_client_name(d))
-                raw = d.get("amount", 0) or 0
-                s = str(raw).replace("$", "").replace(",", "").strip()
-                try:
-                    amount = float(s)
-                except ValueError:
-                    amount = 0.0
-                client_totals[client] += amount
+            _accumulate_client_totals(
+                client_totals, hourly_graph.get("detail_earning") or []
+            )
 
             start_dt = date(y, 1, 1)
             end_dt = date(y, 12, 31)
@@ -761,8 +771,7 @@ def all_time_earning_graph(request):
                 amt = float(r.get("amount") or 0.0)
                 if amt:
                     fixed_total += amt
-                    client = _normalize_client_name(r.get("client_name") or "Unknown")
-                    client_totals[client] += amt
+                    client_totals[_client_from_fixed(r)] += amt
 
             totals.append(round(hourly_total + fixed_total, 2))
     except Exception as exc:
@@ -788,9 +797,6 @@ def all_time_earning_graph(request):
         "charity": round(total_earning * 0.025, 2),
         "title": "All Time : %s - %s ($ %s)" % (x_axis[0], x_axis[-1], total_earning),
     }
-
-    if len(client_totals) > 1:
-        client_totals.pop("Unknown", None)
 
     total_sum = sum(client_totals.values()) if client_totals else 0.0
     data["client_rows"] = [
@@ -1168,7 +1174,8 @@ def earning_month_client_detail(request, year, month, client_name):
     total = 0.0
 
     for d in finreport.get("detail_earning") or []:
-        client = _extract_client_name(d)
+        client = _get(d, "client_name") or _extract_client_name(d)
+        client = _normalize_client_name(client)
         if client == client_name:
             rows.append(d)
             total += float(_get(d, "amount", 0) or 0)
