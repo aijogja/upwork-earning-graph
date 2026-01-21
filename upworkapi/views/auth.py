@@ -13,8 +13,6 @@ import json
 from upworkapi.services.tenant import get_tenant_id
 
 
-
-
 # Create your views here.
 
 
@@ -23,6 +21,7 @@ def auth_view(request):
     authorization_url, state = client.get_authorization_url()
     request.session["upwork_oauth_state"] = state
     return redirect(authorization_url)
+
 
 def callback(request):
     code = request.GET.get("code")
@@ -53,8 +52,7 @@ def callback(request):
         tenant_id = get_tenant_id(access_token)
         if tenant_id:
             request.session["tenant_id"] = tenant_id
-            
-            
+
         query = """
         query {
             user {
@@ -74,7 +72,12 @@ def callback(request):
         data = graphql.Api(client).execute({"query": query})
 
         # Kalau GraphQL gagal, tampilkan response mentah
-        if not isinstance(data, dict) or "data" not in data or not data["data"] or not data["data"].get("user"):
+        if (
+            not isinstance(data, dict)
+            or "data" not in data
+            or not data["data"]
+            or not data["data"].get("user")
+        ):
             return HttpResponse(
                 "GraphQL user query failed:\n\n" + json.dumps(data, indent=2),
                 status=500,
@@ -128,11 +131,15 @@ def callback(request):
         if data is not None:
             extra = "\n\nGraphQL response:\n" + json.dumps(data, indent=2)
         return HttpResponse(
-            "Callback exception:\n\n" + repr(e) + "\n\n" + traceback.format_exc() + extra,
+            "Callback exception:\n\n"
+            + repr(e)
+            + "\n\n"
+            + traceback.format_exc()
+            + extra,
             status=500,
             content_type="text/plain",
         )
-    
+
 
 def disconnect(request):
     if "upwork_auth" in request.session:
@@ -155,6 +162,7 @@ def _extract_profile_key(profile_url):
         if last.startswith("~"):
             return last
     return None
+
 
 def _extract_access_token(token_obj, client_obj):
     # object style

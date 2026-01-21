@@ -9,6 +9,7 @@ from upwork.routers import reports
 
 from upworkapi.utils import upwork_client
 
+
 class UpworkGraphQLError(RuntimeError):
     pass
 
@@ -176,22 +177,29 @@ def fetch_fixed_price_transactions(
         if occurred_at and not _in_date_range(occurred_at, start_date, end_date):
             continue
 
-        kind = it.get("type") or it.get("subtype") or it.get("category") or it.get("transaction_type")
+        kind = (
+            it.get("type")
+            or it.get("subtype")
+            or it.get("category")
+            or it.get("transaction_type")
+        )
         description = it.get("description") or it.get("memo") or it.get("note") or ""
 
         if _is_withdrawal(kind, description) or _is_hourly(kind, description):
             continue
 
-        out.append({
-            "occurred_at": occurred_at,
-            "amount": amt,
-            "currency": cur,
-            "direction": it.get("direction"),
-            "kind": kind,
-            "description": description,
-            "client_name": client_name,
-            "contract_title": _get_nested(it, ("contract", "title")),
-        })
+        out.append(
+            {
+                "occurred_at": occurred_at,
+                "amount": amt,
+                "currency": cur,
+                "direction": it.get("direction"),
+                "kind": kind,
+                "description": description,
+                "client_name": client_name,
+                "contract_title": _get_nested(it, ("contract", "title")),
+            }
+        )
 
     # filter fixed/bonus/milestone by keyword (boleh diubah nanti)
     KEYWORDS = ("fixed", "bonus", "milestone")
@@ -364,14 +372,18 @@ def _fetch_fixed_price_graphql(
                 "transactionDateTime_bt": date_range,
             }
         }
-        payload = _graphql_execute(token, tenant_id, query, variables, debug_info, date_range)
+        payload = _graphql_execute(
+            token, tenant_id, query, variables, debug_info, date_range
+        )
         if payload is None:
             continue
 
         rows = (
-            ((((payload.get("data") or {}).get("transactionHistory") or {}).get("transactionDetail") or {})
-             .get("transactionHistoryRow") or [])
-        )
+            ((payload.get("data") or {}).get("transactionHistory") or {}).get(
+                "transactionDetail"
+            )
+            or {}
+        ).get("transactionHistoryRow") or []
         if not rows:
             continue
 
@@ -389,15 +401,17 @@ def _fetch_fixed_price_graphql(
             except Exception:
                 amt = 0.0
 
-            out_rows.append({
-                "date": row.get("transactionCreationDate"),
-                "occurred_at": row.get("transactionCreationDate"),
-                "amount": amt,
-                "currency": cur,
-                "kind": row.get("type") or row.get("accountingSubtype"),
-                "description": row.get("description") or "",
-                "client_name": _assignment_name(row),
-            })
+            out_rows.append(
+                {
+                    "date": row.get("transactionCreationDate"),
+                    "occurred_at": row.get("transactionCreationDate"),
+                    "amount": amt,
+                    "currency": cur,
+                    "kind": row.get("type") or row.get("accountingSubtype"),
+                    "description": row.get("description") or "",
+                    "client_name": _assignment_name(row),
+                }
+            )
         return out_rows
 
     return None
@@ -455,20 +469,24 @@ def _graphql_execute(
         payload = resp.json()
     except Exception:
         if debug_info is not None:
-            debug_info.setdefault("graphql_attempts", []).append({
+            debug_info.setdefault("graphql_attempts", []).append(
+                {
+                    "date_range": date_range,
+                    "variables": variables,
+                    "http_status": resp.status_code,
+                    "http_body": resp.text[:300],
+                }
+            )
+        return None
+    if debug_info is not None:
+        debug_info.setdefault("graphql_attempts", []).append(
+            {
                 "date_range": date_range,
                 "variables": variables,
                 "http_status": resp.status_code,
-                "http_body": resp.text[:300],
-            })
-        return None
-    if debug_info is not None:
-        debug_info.setdefault("graphql_attempts", []).append({
-            "date_range": date_range,
-            "variables": variables,
-            "http_status": resp.status_code,
-            "errors": payload.get("errors"),
-        })
+                "errors": payload.get("errors"),
+            }
+        )
     if payload.get("errors"):
         return None
     return payload
@@ -485,7 +503,11 @@ def _counterparty_name(inv: Dict[str, Any]) -> str:
 
 
 def _assignment_name(row: Dict[str, Any]) -> str:
-    for key in ("assignmentCompanyName", "assignmentAgencyName", "assignmentDeveloperName"):
+    for key in (
+        "assignmentCompanyName",
+        "assignmentAgencyName",
+        "assignmentDeveloperName",
+    ):
         val = row.get(key)
         if val:
             return str(val)
@@ -533,7 +555,16 @@ def _extract_rows(payload: Any) -> List[Dict[str, Any]]:
     if not candidates:
         return []
 
-    expected = {"amount", "amount_paid", "total", "date", "description", "memo", "type", "subtype"}
+    expected = {
+        "amount",
+        "amount_paid",
+        "total",
+        "date",
+        "description",
+        "memo",
+        "type",
+        "subtype",
+    }
 
     def score(rows: List[Dict[str, Any]]) -> int:
         keys: set[str] = set()
@@ -611,7 +642,11 @@ def _normalize_date(value: Any) -> str:
     return s
 
 
-def _in_date_range(value: str, start_date: Union[str, date, datetime], end_date: Union[str, date, datetime]) -> bool:
+def _in_date_range(
+    value: str,
+    start_date: Union[str, date, datetime],
+    end_date: Union[str, date, datetime],
+) -> bool:
     try:
         d = datetime.strptime(_normalize_date(value), "%Y-%m-%d").date()
     except Exception:

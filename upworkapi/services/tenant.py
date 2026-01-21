@@ -32,7 +32,9 @@ def get_tenant_id(access_token: str) -> str | None:
     except Exception:
         return None
 
-    items = (((payload.get("data") or {}).get("companySelector") or {}).get("items")) or []
+    items = (
+        ((payload.get("data") or {}).get("companySelector") or {}).get("items")
+    ) or []
     if not items:
         return None
 

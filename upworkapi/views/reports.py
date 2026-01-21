@@ -180,11 +180,8 @@ def earning_graph_annually(token, year):
         total_earning += amt
 
         client_name = (
-            (((r.get("contract") or {}).get("offer") or {}).get("client") or {}).get(
-                "name"
-            )
-            or "Unknown"
-        )
+            ((r.get("contract") or {}).get("offer") or {}).get("client") or {}
+        ).get("name") or "Unknown"
 
         memo = r.get("memo") or ""
         detail.append(
@@ -263,7 +260,7 @@ def earning_graph_monthly(token, year, month):
         d = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").date()
         amt = float(m["totalCharges"])
 
-        for (wlabel, ws, we) in week_ranges:
+        for wlabel, ws, we in week_ranges:
             if ws <= d <= we:
                 week_totals[wlabel] += amt
                 list_report.append(
@@ -518,7 +515,7 @@ def _build_total_earning_data(
                 d = datetime.strptime(item["date"], "%Y-%m-%d").date()
             except Exception:
                 continue
-            for (wlabel, ws, we) in week_ranges:
+            for wlabel, ws, we in week_ranges:
                 if ws <= d <= we:
                     fixed_week_totals[wlabel] += float(item["amount"] or 0)
                     break
@@ -588,7 +585,9 @@ def _build_total_earning_data(
             "total": float(total),
             "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
         }
-        for name, total in sorted(client_totals.items(), key=lambda x: x[1], reverse=True)
+        for name, total in sorted(
+            client_totals.items(), key=lambda x: x[1], reverse=True
+        )
     ]
     client_pie_data = json.dumps(
         [
@@ -604,7 +603,9 @@ def _build_total_earning_data(
 def earning_graph(request):
     data = {"page_title": "Hourly Graph"}
 
-    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    year = (
+        request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    )
     month = request.POST.get("month")
 
     if not re.match(r"^\d{4}$", str(year)):
@@ -798,7 +799,9 @@ def all_time_earning_graph(request):
             "total": float(total),
             "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
         }
-        for name, total in sorted(client_totals.items(), key=lambda x: x[1], reverse=True)
+        for name, total in sorted(
+            client_totals.items(), key=lambda x: x[1], reverse=True
+        )
     ]
     data["client_pie_data"] = json.dumps(
         [
@@ -1087,7 +1090,7 @@ def fixed_price_month_detail(request, year, month):
             d = datetime.strptime(item["date"], "%Y-%m-%d").date()
         except Exception:
             continue
-        for (wlabel, ws, we) in week_ranges:
+        for wlabel, ws, we in week_ranges:
             if ws <= d <= we:
                 week_totals[wlabel] += float(item["amount"] or 0)
                 break
