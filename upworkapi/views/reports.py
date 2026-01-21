@@ -1,23 +1,99 @@
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from upworkapi.utils import upwork_client
-from datetime import datetime
-from calendar import monthrange, month_name
-from upwork.routers import graphql
-from datetime import datetime, timedelta
-import re
-from datetime import date
-from oauthlib.oauth2 import InvalidGrantError
-from django.shortcuts import render
-from django.db.models import Sum
-from django.db.models.functions import Coalesce
-from decimal import Decimal
+from calendar import month_name, monthrange
 from collections import defaultdict
+from datetime import date, datetime, timedelta
 import calendar
 import json
-from upworkapi.services.transactions import fetch_fixed_price_transactions
+import re
 
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
+from django.shortcuts import redirect, render
+from oauthlib.oauth2 import InvalidGrantError
+from upwork.routers import graphql
+
+from upworkapi.services.transactions import fetch_fixed_price_transactions
+from upworkapi.utils import upwork_client
+
+
+CACHE_TTL_SECONDS = 900
+
+
+def _cache_key(prefix: str, *parts) -> str:
+    safe_parts = [str(p) for p in parts if p is not None]
+    return prefix + ":" + ":".join(safe_parts)
+
+
+def _date_key(d) -> str:
+    if isinstance(d, datetime):
+        return d.strftime("%Y%m%d")
+    if isinstance(d, date):
+        return d.strftime("%Y%m%d")
+    return str(d)
+
+
+def _cached_earning_graph_annually(request, token, year):
+    key = _cache_key("hourly_year", request.user.id, year)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    data = earning_graph_annually(token, year)
+    cache.set(key, data, CACHE_TTL_SECONDS)
+    return data
+
+
+def _cached_earning_graph_monthly(request, token, year, month):
+    key = _cache_key("hourly_month", request.user.id, year, month)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    data = earning_graph_monthly(token, year, month)
+    cache.set(key, data, CACHE_TTL_SECONDS)
+    return data
+
+
+def _cached_fixed_price_transactions(
+    request,
+    *,
+    token,
+    freelancer_reference,
+    tenant_id,
+    start_date,
+    end_date,
+    debug=False,
+):
+    if debug:
+        return fetch_fixed_price_transactions(
+            token=token,
+            freelancer_reference=freelancer_reference,
+            tenant_id=tenant_id,
+            start_date=start_date,
+            end_date=end_date,
+            debug=debug,
+        )
+
+    key = _cache_key(
+        "fixed_tx",
+        request.user.id,
+        tenant_id or "",
+        freelancer_reference,
+        _date_key(start_date),
+        _date_key(end_date),
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    rows = fetch_fixed_price_transactions(
+        token=token,
+        freelancer_reference=freelancer_reference,
+        tenant_id=tenant_id,
+        start_date=start_date,
+        end_date=end_date,
+        debug=debug,
+    )
+    cache.set(key, rows, CACHE_TTL_SECONDS)
+    return rows
 
 
 def _month_week_ranges(year: int, month: int):
@@ -28,8 +104,8 @@ def _month_week_ranges(year: int, month: int):
         next_month = datetime(year, month + 1, 1).date()
     last = next_month - timedelta(days=1)
 
-    start = first - timedelta(days=first.weekday())      
-    end = last + timedelta(days=(6 - last.weekday()))    
+    start = first - timedelta(days=first.weekday())
+    end = last + timedelta(days=(6 - last.weekday()))
 
     ranges = []
     w = 1
@@ -49,10 +125,23 @@ def _month_week_ranges(year: int, month: int):
 def earning_graph_annually(token, year):
     client = upwork_client.get_client(token)
 
-    list_month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    list_month = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
 
     start_date = f"{year}0101"
-    end_date   = f"{year}1231"
+    end_date = f"{year}1231"
 
     query = """query User {
         user {
@@ -71,16 +160,16 @@ def earning_graph_annually(token, year):
                 }
             }
         }
-    }""" % (start_date, end_date)
+    }""" % (
+        start_date,
+        end_date,
+    )
 
     response = graphql.Api(client).execute({"query": query})
     rows = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
 
-    # monthly totals
     month_totals = {i: 0.0 for i in range(1, 13)}
     total_earning = 0.0
-
-    # IMPORTANT: yearly detail_earning for pie aggregation
     detail = []
 
     for r in rows:
@@ -91,18 +180,22 @@ def earning_graph_annually(token, year):
         total_earning += amt
 
         client_name = (
-            (((r.get("contract") or {}).get("offer") or {}).get("client") or {}).get("name")
+            (((r.get("contract") or {}).get("offer") or {}).get("client") or {}).get(
+                "name"
+            )
             or "Unknown"
         )
 
         memo = r.get("memo") or ""
-        detail.append({
-            "date": r["dateWorkedOn"],
-            "month": str(dt.month),
-            "amount": r.get("totalCharges") or 0,
-            "description": f"{client_name} - {memo}",
-            "client_name": client_name,
-        })
+        detail.append(
+            {
+                "date": r["dateWorkedOn"],
+                "month": str(dt.month),
+                "amount": r.get("totalCharges") or 0,
+                "description": f"{client_name} - {memo}",
+                "client_name": client_name,
+            }
+        )
 
     report = [{"y": round(month_totals[i], 2), "month": str(i)} for i in range(1, 13)]
 
@@ -119,8 +212,6 @@ def earning_graph_annually(token, year):
         "title": "Year : %s ($ %s)" % (year, total_earning),
         "tooltip": tooltip,
     }
-
-
 
 
 def earning_graph_monthly(token, year, month):
@@ -152,7 +243,10 @@ def earning_graph_monthly(token, year, month):
                 }
             }
         }
-    """ % (start_date, end_date)
+    """ % (
+        start_date,
+        end_date,
+    )
 
     response = graphql.Api(client).execute({"query": query})
 
@@ -161,7 +255,6 @@ def earning_graph_monthly(token, year, month):
     week_ranges = _month_week_ranges(year, month)
     x_axis = [wlabel for (wlabel, _, _) in week_ranges]
 
- 
     week_totals = {wlabel: 0.0 for wlabel in x_axis}
     list_report = []
     total_earning = 0.0
@@ -198,7 +291,8 @@ def earning_graph_monthly(token, year, month):
         "detail_earning": list_report,
         "total_earning": total_earning,
         "charity": round(total_earning * 0.025, 2),
-        "title": "Month : %s %s ($ %s)" % (month_name[int(month_str)], year_str, total_earning),
+        "title": "Month : %s %s ($ %s)"
+        % (month_name[int(month_str)], year_str, total_earning),
         "tooltip": tooltip,
     }
     return data
@@ -252,11 +346,10 @@ def timereport_weekly(token, year):
         selected_year = int(year)
         today = date.today()
 
-
         if selected_year == today.year:
-            divisor_week = today.isocalendar()[1]  
+            divisor_week = today.isocalendar()[1]
         else:
-            divisor_week = last_week               
+            divisor_week = last_week
 
         if divisor_week < 1:
             divisor_week = 1
@@ -283,27 +376,11 @@ def timereport_weekly(token, year):
     return data
 
 
-@login_required(login_url="/")
-def _extract_client_name(detail):
-    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
-        val = getattr(detail, attr, None)
-        if val:
-            return str(val).strip()
-
-    desc = str(getattr(detail, "description", "")).strip()
-    if not desc:
-        return "Unknown"
-
-    m = re.match(r"^(.+?)\s*[-:]\s+.+$", desc)
-    if m:
-        return m.group(1).strip()
-
-    return "Unknown"
-
 def _get(obj, key, default=None):
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
 
 def _profile_key_from_url(url):
     if not url:
@@ -317,6 +394,7 @@ def _profile_key_from_url(url):
         if last.startswith("~"):
             return last
     return None
+
 
 def _extract_client_name(detail):
     def dget(k):
@@ -337,123 +415,46 @@ def _extract_client_name(detail):
 
     return "Unknown"
 
-def earning_graph(request):
-    data = {"page_title": "Hourly Graph"}
 
-    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
-    month = request.POST.get("month")
-
-    if not re.match(r"^\d{4}$", str(year)):
-        messages.warning(request, "Wrong year format.!")
-        return redirect("earning_graph")
-
-    try:
-        if month:
-            finreport = earning_graph_monthly(
-                request.session["token"], int(year), int(month)
-            )
-        else:
-            finreport = earning_graph_annually(
-                request.session["token"], str(year)
-            )
-
-        data["graph"] = finreport
-        graph_obj = data["graph"]  
-        details = _get(graph_obj, "detail_earning", None) or []
-
-        totals = defaultdict(float)
-
-        for d in details:
-            client = _extract_client_name(d)
-
-            raw = _get(d, "amount", 0) or 0
-            s = str(raw).replace("$", "").replace(",", "").strip()
-            try:
-                amount = float(s)
-            except ValueError:
-                amount = 0.0
-
-            totals[client] += amount
-
-       
-        if len(totals) > 1:
-            totals.pop("Unknown", None)
+def _normalize_client_name(name: str) -> str:
+    cleaned = (name or "").strip()
+    cleaned = cleaned.split(">", 1)[0].strip()
+    cleaned = re.sub(r"\s*[-:–—]+$", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned or "Unknown"
 
 
-        data["client_rows"] = [
-            {"name": name, "total": float(total)}
-            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
-        ]
+def _build_total_earning_data(
+    request, token, tenant_id, year, month=None, include_detail=False
+):
+    if month:
+        hourly_graph = _cached_earning_graph_monthly(
+            request, token, int(year), int(month)
+        )
+    else:
+        hourly_graph = _cached_earning_graph_annually(request, token, str(year))
 
-        data["client_pie_data"] = json.dumps([
-            {"name": r["name"], "y": float(r["total"])}
-            for r in data["client_rows"]
-            if float(r["total"]) > 0
-        ])
-        return render(request, "upworkapi/finance.html", data)
+    start_dt = date(int(year), 1, 1)
+    end_dt = date(int(year), 12, 31)
+    if month:
+        start_dt = date(int(year), int(month), 1)
+        end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
 
-    except InvalidGrantError:
-        request.session.pop("token", None)
-        messages.warning(request, "Session expired. Please login again.")
-        return redirect("auth")
-
-    except KeyError:
-    
-        messages.warning(request, "Session missing. Please login again.")
-        return redirect("auth")
-
-def total_earning_graph(request, year=None):
-    data = {"page_title": "Total Earning"}
-
-    year = (
-        request.GET.get("year")
-        or request.POST.get("year")
-        or (str(year) if year else None)
-        or str(datetime.now().year)
+    freelancer_reference = (
+        request.session.get("freelancer_reference")
+        or _profile_key_from_url(
+            (request.session.get("upwork_auth") or {}).get("profile_url")
+        )
+        or request.user.username
     )
-    month = request.POST.get("month")
-
-    if not re.match(r"^\d{4}$", str(year)):
-        messages.warning(request, "Wrong year format.!")
-        return redirect("total_earning_graph")
-
-    token = request.session.get("token")
-    tenant_id = request.session.get("tenant_id")
-    if not token:
-        messages.warning(request, "Missing token. Please login again.")
-        return redirect("auth")
-
-    try:
-        if month:
-            hourly_graph = earning_graph_monthly(token, int(year), int(month))
-        else:
-            hourly_graph = earning_graph_annually(token, str(year))
-
-        start_dt = date(int(year), 1, 1)
-        end_dt = date(int(year), 12, 31)
-        if month:
-            start_dt = date(int(year), int(month), 1)
-            end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
-
-        freelancer_reference = (
-            request.session.get("freelancer_reference")
-            or _profile_key_from_url((request.session.get("upwork_auth") or {}).get("profile_url"))
-            or request.user.username
-        )
-        fixed_rows = fetch_fixed_price_transactions(
-            token=token,
-            freelancer_reference=freelancer_reference,
-            tenant_id=tenant_id,
-            start_date=start_dt,
-            end_date=end_dt,
-        )
-    except Exception as exc:
-        messages.warning(request, f"Upwork API error: {exc}")
-        fixed_rows = []
-        hourly_graph = None
-
-    if not hourly_graph:
-        hourly_graph = earning_graph_annually(token, str(year))
+    fixed_rows = _cached_fixed_price_transactions(
+        request,
+        token=token,
+        freelancer_reference=freelancer_reference,
+        tenant_id=tenant_id,
+        start_date=start_dt,
+        end_date=end_dt,
+    )
 
     fixed_clean = []
     fixed_total = 0.0
@@ -462,15 +463,46 @@ def total_earning_graph(request, year=None):
         amt = float(r.get("amount") or 0.0)
         if amt == 0:
             continue
-        client = r.get("client_name") or "Unknown"
+        client = _normalize_client_name(r.get("client_name") or "Unknown")
         desc = r.get("description") or ""
-        fixed_clean.append({
-            "date": occurred_at,
-            "amount": amt,
-            "description": desc,
-            "client_name": client,
-        })
+        fixed_clean.append(
+            {
+                "date": occurred_at,
+                "amount": amt,
+                "description": desc,
+                "client_name": client,
+            }
+        )
         fixed_total += amt
+
+    client_totals = defaultdict(float)
+    for d in hourly_graph.get("detail_earning") or []:
+        client = _normalize_client_name(_extract_client_name(d))
+        raw = d.get("amount", 0) or 0
+        s = str(raw).replace("$", "").replace(",", "").strip()
+        try:
+            amount = float(s)
+        except ValueError:
+            amount = 0.0
+        client_totals[client] += amount
+
+    for f in fixed_clean:
+        client_totals[f["client_name"]] += float(f["amount"] or 0)
+
+    detail = []
+    if include_detail:
+        for d in hourly_graph.get("detail_earning") or []:
+            detail.append(d)
+        for f in fixed_clean:
+            detail.append(
+                {
+                    "date": f["date"],
+                    "amount": f["amount"],
+                    "description": f'{f.get("client_name") or "Unknown"} - {f.get("description") or ""}',
+                    "client_name": f.get("client_name") or "Unknown",
+                }
+            )
+        detail.sort(key=lambda x: x.get("date") or "")
 
     if month:
         x_axis = hourly_graph.get("x_axis") or []
@@ -495,20 +527,9 @@ def total_earning_graph(request, year=None):
             round(hourly_week_totals.get(w, 0.0) + fixed_week_totals.get(w, 0.0), 2)
             for w in x_axis
         ]
-        total_earning = round(float(hourly_graph.get("total_earning") or 0) + fixed_total, 2)
-
-        detail = []
-        for d in hourly_graph.get("detail_earning") or []:
-            detail.append(d)
-        for f in fixed_clean:
-            detail.append({
-                "date": f["date"],
-                "amount": f["amount"],
-                "description": f'{f.get("client_name") or "Unknown"} - {f.get("description") or ""}',
-                "client_name": f.get("client_name") or "Unknown",
-            })
-        detail.sort(key=lambda x: x.get("date") or "")
-
+        total_earning = round(
+            float(hourly_graph.get("total_earning") or 0) + fixed_total, 2
+        )
         graph = {
             "month": hourly_graph.get("month"),
             "year": str(year),
@@ -517,7 +538,8 @@ def total_earning_graph(request, year=None):
             "detail_earning": detail,
             "total_earning": total_earning,
             "charity": round(total_earning * 0.025, 2),
-            "title": "Month : %s %s ($ %s)" % (
+            "title": "Month : %s %s ($ %s)"
+            % (
                 hourly_graph.get("month"),
                 year,
                 total_earning,
@@ -545,25 +567,9 @@ def total_earning_graph(request, year=None):
             {"y": round(hourly_monthly[i] + fixed_monthly[i], 2), "month": str(i)}
             for i in range(1, 13)
         ]
-
-        total_earning = round(float(hourly_graph.get("total_earning") or 0) + fixed_total, 2)
-        detail = []
-        for d in hourly_graph.get("detail_earning") or []:
-            detail.append(d)
-        for f in fixed_clean:
-            dt = None
-            try:
-                dt = datetime.strptime(f["date"], "%Y-%m-%d").date()
-            except Exception:
-                dt = None
-            detail.append({
-                "date": f["date"],
-                "month": str(dt.month) if dt else "",
-                "amount": f["amount"],
-                "description": f'{f.get("client_name") or "Unknown"} - {f.get("description") or ""}',
-                "client_name": f.get("client_name") or "Unknown",
-            })
-
+        total_earning = round(
+            float(hourly_graph.get("total_earning") or 0) + fixed_total, 2
+        )
         graph = {
             "year": str(year),
             "x_axis": hourly_graph.get("x_axis"),
@@ -575,34 +581,131 @@ def total_earning_graph(request, year=None):
             "tooltip": "'<b>'+this.x+'</b><br/>'+this.series.name+': $ '+this.y",
         }
 
-    data["graph"] = graph
-
-    details = data["graph"].get("detail_earning") or []
-    totals = defaultdict(float)
-    for d in details:
-        client = _extract_client_name(d)
-        raw = d.get("amount", 0) or 0
-        s = str(raw).replace("$", "").replace(",", "").strip()
-        try:
-            amount = float(s)
-        except ValueError:
-            amount = 0.0
-        totals[client] += amount
-
-    if len(totals) > 1:
-        totals.pop("Unknown", None)
-
-    data["client_rows"] = [
-        {"name": name, "total": float(total)}
-        for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+    total_sum = sum(client_totals.values()) if client_totals else 0.0
+    client_rows = [
+        {
+            "name": name,
+            "total": float(total),
+            "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
+        }
+        for name, total in sorted(client_totals.items(), key=lambda x: x[1], reverse=True)
     ]
-    data["client_pie_data"] = json.dumps([
-        {"name": r["name"], "y": float(r["total"])}
-        for r in data["client_rows"]
-        if float(r["total"]) > 0
-    ])
+    client_pie_data = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in client_rows
+            if float(r["total"]) > 0
+        ]
+    )
+
+    return graph, client_rows, client_pie_data
+
+
+def earning_graph(request):
+    data = {"page_title": "Hourly Graph"}
+
+    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    month = request.POST.get("month")
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("earning_graph")
+
+    try:
+        if month:
+            finreport = _cached_earning_graph_monthly(
+                request, request.session["token"], int(year), int(month)
+            )
+        else:
+            finreport = _cached_earning_graph_annually(
+                request, request.session["token"], str(year)
+            )
+
+        data["graph"] = finreport
+        graph_obj = data["graph"]
+        details = _get(graph_obj, "detail_earning", None) or []
+
+        totals = defaultdict(float)
+        for d in details:
+            client = _extract_client_name(d)
+
+            raw = _get(d, "amount", 0) or 0
+            s = str(raw).replace("$", "").replace(",", "").strip()
+            try:
+                amount = float(s)
+            except ValueError:
+                amount = 0.0
+
+            totals[client] += amount
+
+        if len(totals) > 1:
+            totals.pop("Unknown", None)
+
+        data["client_rows"] = [
+            {"name": name, "total": float(total)}
+            for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        data["client_pie_data"] = json.dumps(
+            [
+                {"name": r["name"], "y": float(r["total"])}
+                for r in data["client_rows"]
+                if float(r["total"]) > 0
+            ]
+        )
+        return render(request, "upworkapi/finance.html", data)
+
+    except InvalidGrantError:
+        request.session.pop("token", None)
+        messages.warning(request, "Session expired. Please login again.")
+        return redirect("auth")
+
+    except KeyError:
+        messages.warning(request, "Session missing. Please login again.")
+        return redirect("auth")
+
+
+def total_earning_graph(request, year=None):
+    data = {"page_title": "Total Earning"}
+
+    year = (
+        request.GET.get("year")
+        or request.POST.get("year")
+        or (str(year) if year else None)
+        or str(datetime.now().year)
+    )
+    month = request.POST.get("month")
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("total_earning_graph")
+
+    token = request.session.get("token")
+    tenant_id = request.session.get("tenant_id")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    try:
+        graph, client_rows, client_pie_data = _build_total_earning_data(
+            request=request,
+            token=token,
+            tenant_id=tenant_id,
+            year=year,
+            month=month,
+            include_detail=bool(month),
+        )
+        data["graph"] = graph
+        data["client_rows"] = client_rows
+        data["client_pie_data"] = client_pie_data
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        data["graph"] = _cached_earning_graph_annually(request, token, str(year))
+        data["client_rows"] = []
+        data["client_pie_data"] = json.dumps([])
 
     return render(request, "upworkapi/total_earning.html", data)
+
 
 @login_required(login_url="/")
 def all_time_earning_graph(request):
@@ -619,20 +722,33 @@ def all_time_earning_graph(request):
     years = list(range(start_year, current_year + 1))
 
     totals = []
+    client_totals = defaultdict(float)
     try:
         freelancer_reference = (
             request.session.get("freelancer_reference")
-            or _profile_key_from_url((request.session.get("upwork_auth") or {}).get("profile_url"))
+            or _profile_key_from_url(
+                (request.session.get("upwork_auth") or {}).get("profile_url")
+            )
             or request.user.username
         )
 
         for y in years:
-            hourly_graph = earning_graph_annually(token, str(y))
+            hourly_graph = _cached_earning_graph_annually(request, token, str(y))
             hourly_total = float(hourly_graph.get("total_earning") or 0)
+            for d in hourly_graph.get("detail_earning") or []:
+                client = _normalize_client_name(_extract_client_name(d))
+                raw = d.get("amount", 0) or 0
+                s = str(raw).replace("$", "").replace(",", "").strip()
+                try:
+                    amount = float(s)
+                except ValueError:
+                    amount = 0.0
+                client_totals[client] += amount
 
             start_dt = date(y, 1, 1)
             end_dt = date(y, 12, 31)
-            fixed_rows = fetch_fixed_price_transactions(
+            fixed_rows = _cached_fixed_price_transactions(
+                request,
                 token=token,
                 freelancer_reference=freelancer_reference,
                 tenant_id=tenant_id,
@@ -644,6 +760,8 @@ def all_time_earning_graph(request):
                 amt = float(r.get("amount") or 0.0)
                 if amt:
                     fixed_total += amt
+                    client = _normalize_client_name(r.get("client_name") or "Unknown")
+                    client_totals[client] += amt
 
             totals.append(round(hourly_total + fixed_total, 2))
     except Exception as exc:
@@ -670,18 +788,112 @@ def all_time_earning_graph(request):
         "title": "All Time : %s - %s ($ %s)" % (x_axis[0], x_axis[-1], total_earning),
     }
 
+    if len(client_totals) > 1:
+        client_totals.pop("Unknown", None)
+
+    total_sum = sum(client_totals.values()) if client_totals else 0.0
+    data["client_rows"] = [
+        {
+            "name": name,
+            "total": float(total),
+            "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
+        }
+        for name, total in sorted(client_totals.items(), key=lambda x: x[1], reverse=True)
+    ]
+    data["client_pie_data"] = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ]
+    )
+
     return render(request, "upworkapi/all_time_earning.html", data)
+
+
+@login_required(login_url="/")
+def all_time_earning_year(request, year):
+    data = {"page_title": "All Time Earning"}
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("all_time_earning_graph")
+
+    token = request.session.get("token")
+    tenant_id = request.session.get("tenant_id")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    try:
+        graph, client_rows, client_pie_data = _build_total_earning_data(
+            request=request,
+            token=token,
+            tenant_id=tenant_id,
+            year=year,
+            month=None,
+            include_detail=False,
+        )
+        data["graph"] = graph
+        data["client_rows"] = client_rows
+        data["client_pie_data"] = client_pie_data
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        data["graph"] = earning_graph_annually(token, str(year))
+        data["client_rows"] = []
+        data["client_pie_data"] = json.dumps([])
+
+    return render(request, "upworkapi/all_time_earning_year.html", data)
+
+
+@login_required(login_url="/")
+def all_time_earning_month(request, year, month):
+    data = {"page_title": "All Time Earning"}
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("all_time_earning_graph")
+    if int(month) < 1 or int(month) > 12:
+        messages.warning(request, "Wrong month format.!")
+        return redirect("all_time_earning_graph")
+
+    token = request.session.get("token")
+    tenant_id = request.session.get("tenant_id")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    try:
+        graph, client_rows, client_pie_data = _build_total_earning_data(
+            request=request,
+            token=token,
+            tenant_id=tenant_id,
+            year=year,
+            month=month,
+            include_detail=False,
+        )
+        data["graph"] = graph
+        data["client_rows"] = client_rows
+        data["client_pie_data"] = client_pie_data
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        data["graph"] = _cached_earning_graph_monthly(
+            request, token, int(year), int(month)
+        )
+        data["client_rows"] = []
+        data["client_pie_data"] = json.dumps([])
+
+    return render(request, "upworkapi/all_time_earning_month.html", data)
+
 
 @login_required(login_url="/")
 def fixed_price_graph(request):
-
     data = {"page_title": "Fixed Price & Bonus"}
 
     year = request.GET.get("year") or str(datetime.now().year)
     if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")
         return redirect("fixed_price_graph")
-
 
     start_dt = date(int(year), 1, 1)
     end_dt = date(int(year), 12, 31)
@@ -692,15 +904,17 @@ def fixed_price_graph(request):
         messages.warning(request, "Missing token. Please login again.")
         return redirect("auth")
 
-
     debug = False
     try:
         freelancer_reference = (
             request.session.get("freelancer_reference")
-            or _profile_key_from_url((request.session.get("upwork_auth") or {}).get("profile_url"))
+            or _profile_key_from_url(
+                (request.session.get("upwork_auth") or {}).get("profile_url")
+            )
             or request.user.username
         )
-        fetch_result = fetch_fixed_price_transactions(
+        fetch_result = _cached_fixed_price_transactions(
+            request,
             token=token,
             freelancer_reference=freelancer_reference,
             tenant_id=tenant_id,
@@ -719,7 +933,6 @@ def fixed_price_graph(request):
         if debug:
             data["debug_info"] = {"error": str(exc)}
 
-
     clean = []
     total = 0.0
 
@@ -733,15 +946,16 @@ def fixed_price_graph(request):
         kind = r.get("kind") or ""
         desc = r.get("description") or ""
 
-        clean.append({
-            "date": occurred_at,
-            "client": client,
-            "kind": kind,
-            "description": desc,
-            "amount": amt,
-        })
+        clean.append(
+            {
+                "date": occurred_at,
+                "client": client,
+                "kind": kind,
+                "description": desc,
+                "amount": amt,
+            }
+        )
         total += amt
-
 
     clean.sort(key=lambda x: x["date"] or "")
 
@@ -751,7 +965,6 @@ def fixed_price_graph(request):
     data["charity"] = round(total * 0.025, 2)
     data["show_detail_table"] = len(clean) <= 20
 
-
     per_client = defaultdict(float)
     for x in clean:
         per_client[x["client"]] += float(x["amount"] or 0)
@@ -760,12 +973,13 @@ def fixed_price_graph(request):
         {"name": k, "total": round(v, 2)}
         for k, v in sorted(per_client.items(), key=lambda kv: kv[1], reverse=True)
     ]
-    data["client_pie_data"] = json.dumps([
-        {"name": r["name"], "y": float(r["total"])}
-        for r in data["client_rows"]
-        if float(r["total"]) > 0
-    ])
-
+    data["client_pie_data"] = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ]
+    )
 
     monthly = {m: 0.0 for m in range(1, 13)}
     for x in clean:
@@ -775,11 +989,21 @@ def fixed_price_graph(request):
         except Exception:
             pass
 
-    data["x_axis"] = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-    data["report"] = [
-        {"y": round(monthly[i], 2), "month": i}
-        for i in range(1, 13)
+    data["x_axis"] = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
     ]
+    data["report"] = [{"y": round(monthly[i], 2), "month": i} for i in range(1, 13)]
     data["tooltip"] = "'<b>'+this.x+'</b><br/>$ '+this.y"
 
     return render(request, "upworkapi/fixed_price.html", data)
@@ -809,10 +1033,13 @@ def fixed_price_month_detail(request, year, month):
     try:
         freelancer_reference = (
             request.session.get("freelancer_reference")
-            or _profile_key_from_url((request.session.get("upwork_auth") or {}).get("profile_url"))
+            or _profile_key_from_url(
+                (request.session.get("upwork_auth") or {}).get("profile_url")
+            )
             or request.user.username
         )
-        rows = fetch_fixed_price_transactions(
+        rows = _cached_fixed_price_transactions(
+            request,
             token=token,
             freelancer_reference=freelancer_reference,
             tenant_id=tenant_id,
@@ -836,18 +1063,20 @@ def fixed_price_month_detail(request, year, month):
         kind = r.get("kind") or ""
         desc = r.get("description") or ""
 
-        clean.append({
-            "date": occurred_at,
-            "client": client,
-            "kind": kind,
-            "description": desc,
-            "amount": amt,
-        })
+        clean.append(
+            {
+                "date": occurred_at,
+                "client": client,
+                "kind": kind,
+                "description": desc,
+                "amount": amt,
+            }
+        )
         total += amt
 
     clean.sort(key=lambda x: x["date"] or "")
 
-    month_name = calendar.month_name[int(month)]
+    month_label = calendar.month_name[int(month)]
 
     week_ranges = _month_week_ranges(int(year), int(month))
     x_axis = [wlabel for (wlabel, _, _) in week_ranges]
@@ -865,22 +1094,25 @@ def fixed_price_month_detail(request, year, month):
 
     detail_rows = []
     for item in clean:
-        detail_rows.append({
-            "date": item["date"],
-            "description": f'{item["client"]} - {item["description"]}',
-            "amount": item["amount"],
-        })
+        detail_rows.append(
+            {
+                "date": item["date"],
+                "description": f'{item["client"]} - {item["description"]}',
+                "amount": item["amount"],
+            }
+        )
 
     graph = {
-        "month": month_name,
+        "month": month_label,
         "year": str(year),
         "x_axis": x_axis,
         "report": [round(week_totals[w], 2) for w in x_axis],
         "detail_earning": detail_rows,
         "total_earning": round(total, 2),
         "charity": round(total * 0.025, 2),
-        "title": "Month : %s %s ($ %s)" % (
-            month_name,
+        "title": "Month : %s %s ($ %s)"
+        % (
+            month_label,
             year,
             round(total, 2),
         ),
@@ -896,11 +1128,13 @@ def fixed_price_month_detail(request, year, month):
         {"name": k, "total": round(v, 2)}
         for k, v in sorted(per_client.items(), key=lambda kv: kv[1], reverse=True)
     ]
-    data["client_pie_data"] = json.dumps([
-        {"name": r["name"], "y": float(r["total"])}
-        for r in data["client_rows"]
-        if float(r["total"]) > 0
-    ])
+    data["client_pie_data"] = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ]
+    )
 
     return render(request, "upworkapi/fixed_price_month_detail.html", data)
 
@@ -922,43 +1156,6 @@ def timereport_graph(request):
     data["graph"] = timelog
     return render(request, "upworkapi/timereport.html", data)
 
-@login_required(login_url="/")
-def earning_month_client_detail(request, year, month, client_name):
-    qs = (
-        Earning.objects
-        .filter(date__year=year, date__month=month, client_name=client_name)
-        .order_by("date")
-    )
-
-    total = qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.0")))["total"]
-
-    return render(
-        request,
-        "earning/earning_month_client_detail.html",
-        {
-            "year": year,
-            "month": month,
-            "client_name": client_name,
-            "rows": qs,
-            "total": float(total),
-        },
-    )
-
-def _extract_client_name(detail):
-    for attr in ("client_name", "client", "buyer", "team_name", "organization", "company"):
-        val = getattr(detail, attr, None)
-        if val:
-            return str(val).strip()
-
-    desc = str(getattr(detail, "description", "")).strip()
-    if not desc:
-        return "Unknown"
-
-    m = re.match(r"^([^:-]{2,60})\s*[:\-]\s+.+$", desc)
-    if m:
-        return m.group(1).strip()
-
-    return desc[:40]
 
 @login_required(login_url="/")
 def earning_month_client_detail(request, year, month, client_name):
@@ -967,12 +1164,11 @@ def earning_month_client_detail(request, year, month, client_name):
     rows = []
     total = 0.0
 
-    if getattr(finreport, "detail_earning", None):
-        for d in finreport.detail_earning:
-            client = _extract_client_name(d)
-            if client == client_name:
-                rows.append(d)
-                total += float(getattr(d, "amount", 0) or 0)
+    for d in finreport.get("detail_earning") or []:
+        client = _extract_client_name(d)
+        if client == client_name:
+            rows.append(d)
+            total += float(_get(d, "amount", 0) or 0)
 
     return render(
         request,
@@ -985,10 +1181,3 @@ def earning_month_client_detail(request, year, month, client_name):
             "total": total,
         },
     )
-
-def _extract_client_name(detail):
-    desc = str(_get(detail, "description", "") or "").strip()
-    if not desc:
-        return "Unknown"
-
-    return desc.split(" - ", 1)[0].strip() or "Unknown"
