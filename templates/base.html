@@ -34,8 +34,10 @@
             <img src="{{ upwork_auth.profile_picture }}" alt="{{ upwork_auth.fullname }}" class="avatar mr-1"> {{ upwork_auth.fullname }}
           </a>
           <div class="dropdown-menu">
-            <a class="dropdown-item" href="{% url 'earning_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Earning Graph</a>
+            <a class="dropdown-item" href="{% url 'earning_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Hourly Graph</a>
+            <a class="dropdown-item" href="{% url 'total_earning_graph' %}"><i class="fa fa-line-chart" aria-hidden="true"></i> Total Earning</a>
             <a class="dropdown-item" href="{% url 'timereport_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Time Report Graph</a>
+            <a class="dropdown-item" href="{% url 'fixed_price_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Fixed Price &amp; Bonus</a>
             <div class="dropdown-divider"></div>
             <a class="dropdown-item" href="{{ upwork_auth.profile_url }}" target="_blank"><i class="fa fa-external-link" aria-hidden="true"></i> Upwork Profile</a>
             <a class="dropdown-item" href="{% url 'logout' %}"><i class="fa fa-power-off" aria-hidden="true"></i> Disconect</a>
