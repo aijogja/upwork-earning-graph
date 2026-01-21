@@ -32,6 +32,9 @@ urlpatterns = [
 
     path("earning", reports.earning_graph, name="earning_graph"),
     path("earning/", reports.earning_graph, name="earning_graph"),
+    path("earning/total", reports.total_earning_graph, name="total_earning_graph"),
+    path("earning/total/", reports.total_earning_graph, name="total_earning_graph"),
+    path("earning/total/<int:year>", reports.total_earning_graph, name="total_earning_graph_year"),
 
     path("timereport", reports.timereport_graph, name="timereport_graph"),
     path("timereport/", reports.timereport_graph, name="timereport_graph"),

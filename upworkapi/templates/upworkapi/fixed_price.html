@@ -24,7 +24,18 @@
     </form>
 
     <div class="mb-3">
-      <div><b>Total:</b> $ {{ total|floatformat:2|intcomma }}</div>
+      <p class="lead mb-0">
+        <table>
+          <tr>
+            <td class="w-50">Total Earning</td>
+            <td>: <span class="text-success">$ {{ total|floatformat:2|intcomma }}</span></td>
+          </tr>
+          <tr>
+            <td class="w-50">Charity <abbr title="2.5% from your total earning">(2.5%)</abbr></td>
+            <td>: <span class="text-danger">$ {{ charity|floatformat:2|intcomma }}</span></td>
+          </tr>
+        </table>
+      </p>
     </div>
 
     {% if debug_info %}
@@ -58,7 +69,7 @@
         Highcharts.setOptions({ lang: { thousandsSep: ',' } });
         Highcharts.chart('fixed_chart', {
           chart: { type: 'column' },
-          title: { text: 'Fixed/Bonus per Month' },
+          title: { text: 'Fixed/Bonus Graph' },
           xAxis: { categories: {{ x_axis|safe }} },
           yAxis: { title: { text: 'USD' } },
           tooltip: {
