@@ -29,7 +29,7 @@ urlpatterns = [
     path("callback/", auth.callback, name="callback"),
     path("logout/", auth.disconnect, name="logout"),
     path("earning/", reports.earning_graph, name="earning_graph"),
-    path("earning/total/", reports.total_earning_graph, name="total_earning_graph"),
+    path("earning/total/", reports.total_earning_graph_trx, name="total_earning_graph"),
     path(
         "earning/total/<int:year>",
         reports.total_earning_graph,

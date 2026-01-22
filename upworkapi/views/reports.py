@@ -12,7 +12,11 @@ from django.shortcuts import redirect, render
 from oauthlib.oauth2 import InvalidGrantError
 from upwork.routers import graphql
 
-from upworkapi.services.transactions import fetch_fixed_price_transactions
+from upworkapi.services.transactions import (
+    fetch_fixed_price_transactions,
+    fetch_service_fee_history,
+    fetch_transaction_history_rows,
+)
 from upworkapi.utils import upwork_client
 
 
@@ -94,6 +98,169 @@ def _cached_fixed_price_transactions(
     )
     cache.set(key, rows, CACHE_TTL_SECONDS)
     return rows
+
+
+def _cached_hourly_service_fees(
+    request,
+    *,
+    token,
+    tenant_id,
+    tenant_ids=None,
+    start_date,
+    end_date,
+):
+    tenant_key = ""
+    if tenant_ids:
+        tenant_key = ",".join(sorted(str(t) for t in tenant_ids if str(t)))
+    key = _cache_key(
+        "hourly_service_fee",
+        request.user.id,
+        tenant_key or (tenant_id or ""),
+        _date_key(start_date),
+        _date_key(end_date),
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    rows = fetch_service_fee_history(
+        token=token,
+        tenant_id=tenant_id,
+        tenant_ids=tenant_ids,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    cache.set(key, rows, CACHE_TTL_SECONDS)
+    return rows
+
+
+def _service_fee_summary(
+    request,
+    *,
+    start_date,
+    end_date,
+    include_rows=False,
+    debug=False,
+):
+    rows, debug_info = fetch_service_fee_history(
+        token=request.session.get("token"),
+        tenant_id=request.session.get("tenant_id"),
+        tenant_ids=request.session.get("tenant_ids"),
+        start_date=start_date,
+        end_date=end_date,
+        debug=debug,
+    )
+    rows = rows or []
+    rows.sort(key=lambda x: x.get("date") or x.get("occurred_at") or "")
+    total = sum(float(r.get("amount") or 0) for r in rows)
+    if not include_rows:
+        rows = []
+    return rows, total, debug_info
+
+
+def _is_txn_fee_row(row) -> bool:
+    text = f"{row.get('kind') or ''} {row.get('subtype') or ''} {row.get('description') or ''} {row.get('description_ui') or ''}".lower()
+    if "connect" in text or "membership" in text or "subscription" in text:
+        return False
+    if "service fee" in text or "upwork fee" in text or "marketplace fee" in text:
+        return True
+    if "service_fee" in text or "upwork_fee" in text:
+        return True
+    if "fee" in text:
+        amt = float(row.get("amount") or 0)
+        return amt < 0
+    return False
+
+
+def _is_txn_earning_row(row) -> bool:
+    if _is_txn_fee_row(row):
+        return False
+    amt = float(row.get("amount") or 0)
+    if amt <= 0:
+        return False
+    text = f"{row.get('kind') or ''} {row.get('subtype') or ''} {row.get('description') or ''} {row.get('description_ui') or ''}".lower()
+    if "apinvoice" in text or "hourly" in text:
+        return True
+    for key in ("fixed", "bonus", "milestone"):
+        if key in text:
+            return True
+    return False
+
+
+def _is_txn_membership_row(row) -> bool:
+    text = f"{row.get('subtype') or ''} {row.get('description') or ''} {row.get('description_ui') or ''}".lower()
+    if "connect" in text:
+        return False
+    if "subscription" in text:
+        return True
+    if "membership" in text or "freelancer plus" in text:
+        return True
+    return False
+
+
+def _is_txn_connects_row(row) -> bool:
+    text = f"{row.get('subtype') or ''} {row.get('description') or ''} {row.get('description_ui') or ''}".lower()
+    if "connect" in text or "connects" in text:
+        return True
+    return "fees for additional connects" in text
+
+
+def _is_txn_fixed_bonus_context(row) -> bool:
+    text = f"{row.get('subtype') or ''} {row.get('description') or ''} {row.get('description_ui') or ''}".lower()
+    for key in ("fixed", "bonus", "milestone", "escrow"):
+        if key in text:
+            return True
+    return False
+
+
+def _parse_txn_date(row) -> date | None:
+    raw = row.get("date") or row.get("occurred_at")
+    if not raw:
+        return None
+    s = str(raw)
+    if len(s) >= 10:
+        s = s[:10]
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _parse_txn_work_range(row) -> tuple[date | None, date | None]:
+    text = f"{row.get('description_ui') or ''} {row.get('description') or ''}"
+    m = re.search(r"(\\d{2}/\\d{2}/\\d{4})\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})", text)
+    if not m:
+        return None, None
+    try:
+        start_dt = datetime.strptime(m.group(1), "%m/%d/%Y").date()
+        end_dt = datetime.strptime(m.group(2), "%m/%d/%Y").date()
+        return start_dt, end_dt
+    except Exception:
+        return None, None
+
+
+def _effective_txn_date(row, *, year: int, month: int) -> date | None:
+    start_dt, end_dt = _parse_txn_work_range(row)
+    if end_dt and end_dt.year == year and end_dt.month == month:
+        return end_dt
+    if start_dt and start_dt.year == year and start_dt.month == month:
+        return start_dt
+    return _parse_txn_date(row)
+
+
+def _effective_txn_date_any(row) -> date | None:
+    start_dt, end_dt = _parse_txn_work_range(row)
+    if end_dt:
+        return end_dt
+    if start_dt:
+        return start_dt
+    return _parse_txn_date(row)
+
+
+def _display_date(value: date | None, fallback: str = "") -> str:
+    if not value:
+        return fallback
+    return value.strftime("%d-%b-%Y")
 
 
 def _month_week_ranges(year: int, month: int):
@@ -631,6 +798,8 @@ def _build_total_earning_data(
 
 def earning_graph(request):
     data = {"page_title": "Hourly Graph"}
+    data["service_fee_rows"] = []
+    data["service_fee_total"] = 0.0
 
     year = (
         request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
@@ -670,6 +839,31 @@ def earning_graph(request):
                 if float(r["total"]) > 0
             ]
         )
+        if graph_obj.get("month"):
+            start_dt = date(int(year), int(month), 1)
+            end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+            fee_rows, fee_total, fee_debug = _service_fee_summary(
+                request,
+                start_date=start_dt,
+                end_date=end_dt,
+                include_rows=True,
+                debug=True,
+            )
+            data["service_fee_rows"] = fee_rows
+            data["service_fee_total"] = fee_total
+            data["service_fee_debug"] = fee_debug
+        else:
+            start_dt = date(int(year), 1, 1)
+            end_dt = date(int(year), 12, 31)
+            _, fee_total, fee_debug = _service_fee_summary(
+                request,
+                start_date=start_dt,
+                end_date=end_dt,
+                include_rows=False,
+                debug=True,
+            )
+            data["service_fee_total"] = fee_total
+            data["service_fee_debug"] = fee_debug
         return render(request, "upworkapi/finance.html", data)
 
     except InvalidGrantError:
@@ -684,6 +878,8 @@ def earning_graph(request):
 
 def total_earning_graph(request, year=None):
     data = {"page_title": "Total Earning"}
+    data["service_fee_total"] = 0.0
+    data["service_fee_rows"] = []
 
     year = (
         request.GET.get("year")
@@ -715,6 +911,31 @@ def total_earning_graph(request, year=None):
         data["graph"] = graph
         data["client_rows"] = client_rows
         data["client_pie_data"] = client_pie_data
+        if month:
+            start_dt = date(int(year), int(month), 1)
+            end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+            fee_rows, fee_total, fee_debug = _service_fee_summary(
+                request,
+                start_date=start_dt,
+                end_date=end_dt,
+                include_rows=True,
+                debug=True,
+            )
+            data["service_fee_rows"] = fee_rows
+            data["service_fee_total"] = fee_total
+            data["service_fee_debug"] = fee_debug
+        else:
+            start_dt = date(int(year), 1, 1)
+            end_dt = date(int(year), 12, 31)
+            _, fee_total, fee_debug = _service_fee_summary(
+                request,
+                start_date=start_dt,
+                end_date=end_dt,
+                include_rows=False,
+                debug=True,
+            )
+            data["service_fee_total"] = fee_total
+            data["service_fee_debug"] = fee_debug
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         data["graph"] = _cached_earning_graph_annually(request, token, str(year))
@@ -724,9 +945,312 @@ def total_earning_graph(request, year=None):
     return render(request, "upworkapi/total_earning.html", data)
 
 
+def total_earning_graph_trx(request):
+    data = {"page_title": "Total Earning"}
+    data["service_fee_total"] = 0.0
+    data["service_fee_rows"] = []
+    data["membership_rows"] = []
+    data["connect_rows"] = []
+    data["membership_total"] = 0.0
+    data["connect_total"] = 0.0
+
+    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    month = request.POST.get("month")
+    net_view = request.GET.get("net") == "1"
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("total_earning_graph")
+
+    token = request.session.get("token")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    if month:
+        start_dt = date(int(year), int(month), 1)
+        end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+    else:
+        start_dt = date(int(year), 1, 1)
+        end_dt = date(int(year), 12, 31)
+
+    rows, debug_info = fetch_transaction_history_rows(
+        token=token,
+        tenant_id=request.session.get("tenant_id"),
+        tenant_ids=request.session.get("tenant_ids"),
+        start_date=start_dt,
+        end_date=end_dt,
+        debug=True,
+    )
+    rows = rows or []
+
+    earning_rows = [r for r in rows if _is_txn_earning_row(r)]
+    fee_rows = [r for r in rows if _is_txn_fee_row(r)]
+    membership_rows = [r for r in rows if _is_txn_membership_row(r)]
+    connect_rows = [r for r in rows if _is_txn_connects_row(r)]
+
+    period_earning_rows = []
+    period_fee_rows = []
+    if month:
+        for row in earning_rows:
+            d = _effective_txn_date(row, year=int(year), month=int(month))
+            if d and d.year == int(year) and d.month == int(month):
+                period_earning_rows.append(row)
+        for row in fee_rows:
+            d = _effective_txn_date(row, year=int(year), month=int(month))
+            if d and d.year == int(year) and d.month == int(month):
+                period_fee_rows.append(row)
+        for row in membership_rows:
+            d = _effective_txn_date(row, year=int(year), month=int(month))
+            if d and d.year == int(year) and d.month == int(month):
+                data["membership_rows"].append(row)
+        for row in connect_rows:
+            d = _effective_txn_date(row, year=int(year), month=int(month))
+            if d and d.year == int(year) and d.month == int(month):
+                data["connect_rows"].append(row)
+    else:
+        for row in earning_rows:
+            d = _effective_txn_date_any(row)
+            if d and d.year == int(year):
+                period_earning_rows.append(row)
+        for row in fee_rows:
+            d = _effective_txn_date_any(row)
+            if d and d.year == int(year):
+                period_fee_rows.append(row)
+        for row in membership_rows:
+            d = _effective_txn_date_any(row)
+            if d and d.year == int(year):
+                data["membership_rows"].append(row)
+        for row in connect_rows:
+            d = _effective_txn_date_any(row)
+            if d and d.year == int(year):
+                data["connect_rows"].append(row)
+
+    period_fee_rows.sort(key=lambda x: x.get("date") or x.get("occurred_at") or "")
+    data["membership_rows"].sort(
+        key=lambda x: x.get("date") or x.get("occurred_at") or ""
+    )
+    data["connect_rows"].sort(key=lambda x: x.get("date") or x.get("occurred_at") or "")
+
+    for row in period_fee_rows:
+        d = _parse_txn_date(row)
+        row["display_date"] = _display_date(
+            d, fallback=str(row.get("date") or row.get("occurred_at") or "")
+        )
+    for row in data["membership_rows"]:
+        d = _parse_txn_date(row)
+        row["display_date"] = _display_date(
+            d, fallback=str(row.get("date") or row.get("occurred_at") or "")
+        )
+    for row in data["connect_rows"]:
+        d = _parse_txn_date(row)
+        row["display_date"] = _display_date(
+            d, fallback=str(row.get("date") or row.get("occurred_at") or "")
+        )
+    fee_total = sum(float(r.get("amount") or 0) for r in period_fee_rows)
+    membership_total = sum(float(r.get("amount") or 0) for r in data["membership_rows"])
+    connect_total = sum(float(r.get("amount") or 0) for r in data["connect_rows"])
+
+    data["service_fee_total"] = fee_total
+    data["membership_total"] = membership_total
+    data["connect_total"] = connect_total
+    data["membership_total_display"] = -abs(membership_total)
+    data["connect_total_display"] = -abs(connect_total)
+    data["misc_total_display"] = -abs(membership_total + connect_total)
+    if month:
+        data["service_fee_rows"] = period_fee_rows
+    data["service_fee_debug"] = debug_info
+
+    data["membership_connect_rows"] = []
+    for row in data["membership_rows"]:
+        data["membership_connect_rows"].append(
+            {
+                "display_date": row.get("display_date"),
+                "type": "Membership",
+                "description": row.get("description_ui") or row.get("description") or "",
+                "amount": -abs(float(row.get("amount") or 0)),
+            }
+        )
+    for row in data["connect_rows"]:
+        data["membership_connect_rows"].append(
+            {
+                "display_date": row.get("display_date"),
+                "type": "Connects",
+                "description": row.get("description_ui") or row.get("description") or "",
+                "amount": -abs(float(row.get("amount") or 0)),
+            }
+        )
+    data["membership_connect_rows"].sort(key=lambda x: x.get("display_date") or "")
+    data["show_membership_connects"] = bool(
+        data["membership_rows"] or data["connect_rows"]
+    )
+
+    if month:
+        week_ranges = _month_week_ranges(int(year), int(month))
+        x_axis = [wlabel for (wlabel, _, _) in week_ranges]
+        week_totals = {wlabel: 0.0 for wlabel in x_axis}
+        fee_week_totals = {wlabel: 0.0 for wlabel in x_axis}
+
+        for row in period_earning_rows:
+            d = _effective_txn_date(row, year=int(year), month=int(month))
+            if not d:
+                continue
+            if d.year != int(year) or d.month != int(month):
+                continue
+            for (wlabel, ws, we) in week_ranges:
+                if ws <= d <= we:
+                    week_totals[wlabel] += float(row.get("amount") or 0)
+                    break
+
+        for row in period_fee_rows:
+            d = _parse_txn_date(row)
+            if not d:
+                continue
+            if d.year != int(year) or d.month != int(month):
+                continue
+            for (wlabel, ws, we) in week_ranges:
+                if ws <= d <= we:
+                    fee_week_totals[wlabel] += float(row.get("amount") or 0)
+                    break
+
+        report = []
+        detail_rows = []
+        for wlabel in x_axis:
+            gross = round(week_totals[wlabel], 2)
+            fee = round(fee_week_totals[wlabel], 2)
+            net = round(gross + fee, 2)
+            report.append(net if net_view else gross)
+
+        for row in period_earning_rows:
+            d = _effective_txn_date(row, year=int(year), month=int(month))
+            if not d:
+                continue
+            if d.year != int(year) or d.month != int(month):
+                continue
+            week_label = ""
+            for (wlabel, ws, we) in week_ranges:
+                if ws <= d <= we:
+                    week_label = wlabel
+                    break
+            if not week_label:
+                week_label = f"W{((d.day - 1) // 7) + 1}"
+            detail_rows.append(
+                {
+                    "week": week_label,
+                    "date": _display_date(d, fallback=d.strftime("%Y-%m-%d")),
+                    "client_name": row.get("client_name") or "Unknown",
+                    "description": row.get("description_ui") or row.get("description") or "",
+                    "amount": float(row.get("amount") or 0),
+                }
+            )
+        detail_rows.sort(key=lambda x: x.get("date") or "")
+
+        total_gross = round(sum(week_totals.values()), 2)
+        total_net = round(total_gross + fee_total, 2)
+        total_earning = total_net if net_view else total_gross
+
+        graph = {
+            "month": month_name[int(month)],
+            "year": str(year),
+            "x_axis": x_axis,
+            "report": report,
+            "detail_earning": detail_rows,
+            "total_earning": total_earning,
+            "charity": round(total_earning * 0.025, 2),
+            "title": "Month : %s %s ($ %s)"
+            % (month_name[int(month)], year, total_earning),
+            "tooltip": "'<b>Week : </b>'+this.x+'<br/>'+this.series.name+': $ '+this.y",
+        }
+    else:
+        monthly = {i: 0.0 for i in range(1, 13)}
+        fee_monthly = {i: 0.0 for i in range(1, 13)}
+        for row in period_earning_rows:
+            d = _effective_txn_date_any(row)
+            if not d:
+                continue
+            if d.year != int(year):
+                continue
+            monthly[d.month] += float(row.get("amount") or 0)
+        for row in period_fee_rows:
+            d = _effective_txn_date_any(row)
+            if not d:
+                continue
+            if d.year != int(year):
+                continue
+            fee_monthly[d.month] += float(row.get("amount") or 0)
+
+        report = []
+        for i in range(1, 13):
+            gross = round(monthly[i], 2)
+            fee = round(fee_monthly[i], 2)
+            net = round(gross + fee, 2)
+            report.append({"y": net if net_view else gross, "month": str(i)})
+
+        total_gross = round(sum(monthly.values()), 2)
+        total_net = round(total_gross + fee_total, 2)
+        total_earning = total_net if net_view else total_gross
+
+        graph = {
+            "year": str(year),
+            "x_axis": [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+            ],
+            "report": report,
+            "detail_earning": [],
+            "total_earning": total_earning,
+            "charity": round(total_earning * 0.025, 2),
+            "title": "Year : %s ($ %s)" % (year, total_earning),
+            "tooltip": "'<b>'+this.x+'</b><br/>'+this.series.name+': $ '+this.y",
+        }
+
+    totals = defaultdict(float)
+    fee_by_client = defaultdict(float)
+    for row in period_earning_rows:
+        client = _normalize_client_name(row.get("client_name") or "Unknown")
+        totals[client] += float(row.get("amount") or 0)
+    for row in period_fee_rows:
+        client = _normalize_client_name(row.get("client_name") or "Unknown")
+        fee_by_client[client] += float(row.get("amount") or 0)
+
+    if net_view:
+        for name, fee_amt in fee_by_client.items():
+            totals[name] += float(fee_amt or 0)
+
+    if len(totals) > 1:
+        totals.pop("Unknown", None)
+
+    data["graph"] = graph
+    data["net_view"] = net_view
+    data["client_rows"] = [
+        {"name": name, "total": float(total)}
+        for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
+    ]
+    data["client_pie_data"] = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ]
+    )
+
+    return render(request, "upworkapi/total_earning_trx.html", data)
+
+
 @login_required(login_url="/")
 def all_time_earning_graph(request):
     data = {"page_title": "All Time Earning"}
+    data["service_fee_total"] = 0.0
 
     token = request.session.get("token")
     tenant_id = request.session.get("tenant_id")
@@ -797,6 +1321,20 @@ def all_time_earning_graph(request):
         "charity": round(total_earning * 0.025, 2),
         "title": "All Time : %s - %s ($ %s)" % (x_axis[0], x_axis[-1], total_earning),
     }
+    try:
+        start_dt = date(start_year, 1, 1)
+        end_dt = date(current_year, 12, 31)
+        _, fee_total, fee_debug = _service_fee_summary(
+            request,
+            start_date=start_dt,
+            end_date=end_dt,
+            include_rows=False,
+            debug=True,
+        )
+        data["service_fee_total"] = fee_total
+        data["service_fee_debug"] = fee_debug
+    except Exception:
+        pass
 
     total_sum = sum(client_totals.values()) if client_totals else 0.0
     data["client_rows"] = [
@@ -823,6 +1361,7 @@ def all_time_earning_graph(request):
 @login_required(login_url="/")
 def all_time_earning_year(request, year):
     data = {"page_title": "All Time Earning"}
+    data["service_fee_total"] = 0.0
 
     if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")
@@ -846,6 +1385,17 @@ def all_time_earning_year(request, year):
         data["graph"] = graph
         data["client_rows"] = client_rows
         data["client_pie_data"] = client_pie_data
+        start_dt = date(int(year), 1, 1)
+        end_dt = date(int(year), 12, 31)
+        _, fee_total, fee_debug = _service_fee_summary(
+            request,
+            start_date=start_dt,
+            end_date=end_dt,
+            include_rows=False,
+            debug=True,
+        )
+        data["service_fee_total"] = fee_total
+        data["service_fee_debug"] = fee_debug
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         data["graph"] = earning_graph_annually(token, str(year))
@@ -858,6 +1408,7 @@ def all_time_earning_year(request, year):
 @login_required(login_url="/")
 def all_time_earning_month(request, year, month):
     data = {"page_title": "All Time Earning"}
+    data["service_fee_total"] = 0.0
 
     if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")
@@ -884,6 +1435,17 @@ def all_time_earning_month(request, year, month):
         data["graph"] = graph
         data["client_rows"] = client_rows
         data["client_pie_data"] = client_pie_data
+        start_dt = date(int(year), int(month), 1)
+        end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+        _, fee_total, fee_debug = _service_fee_summary(
+            request,
+            start_date=start_dt,
+            end_date=end_dt,
+            include_rows=False,
+            debug=True,
+        )
+        data["service_fee_total"] = fee_total
+        data["service_fee_debug"] = fee_debug
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         data["graph"] = _cached_earning_graph_monthly(
@@ -898,6 +1460,7 @@ def all_time_earning_month(request, year, month):
 @login_required(login_url="/")
 def fixed_price_graph(request):
     data = {"page_title": "Fixed Price & Bonus"}
+    data["service_fee_total"] = 0.0
 
     year = request.GET.get("year") or str(datetime.now().year)
     if not re.match(r"^\d{4}$", str(year)):
@@ -942,6 +1505,31 @@ def fixed_price_graph(request):
         if debug:
             data["debug_info"] = {"error": str(exc)}
 
+    fee_rows = []
+    try:
+        fee_rows, fee_debug = fetch_transaction_history_rows(
+            token=token,
+            tenant_id=tenant_id,
+            tenant_ids=request.session.get("tenant_ids"),
+            start_date=start_dt,
+            end_date=end_dt,
+            debug=True,
+        )
+        fee_rows = [
+            r
+            for r in (fee_rows or [])
+            if _is_txn_fee_row(r) and _is_txn_fixed_bonus_context(r)
+        ]
+        for r in fee_rows:
+            d = _effective_txn_date_any(r)
+            r["display_date"] = _display_date(
+                d, fallback=str(r.get("date") or r.get("occurred_at") or "")
+            )
+        data["service_fee_total"] = sum(float(r.get("amount") or 0) for r in fee_rows)
+        data["service_fee_debug"] = fee_debug
+    except Exception:
+        fee_rows = []
+
     clean = []
     total = 0.0
 
@@ -971,6 +1559,7 @@ def fixed_price_graph(request):
     data["year"] = year
     data["rows"] = clean
     data["total"] = round(total, 2)
+    data["service_fee_rows"] = fee_rows
     data["charity"] = round(total * 0.025, 2)
     data["show_detail_table"] = len(clean) <= 20
 
@@ -1021,6 +1610,7 @@ def fixed_price_graph(request):
 @login_required(login_url="/")
 def fixed_price_month_detail(request, year, month):
     data = {"page_title": "Fixed Price & Bonus"}
+    data["service_fee_total"] = 0.0
 
     if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")
@@ -1058,6 +1648,32 @@ def fixed_price_month_detail(request, year, month):
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         rows = []
+
+    fee_rows = []
+    try:
+        fee_rows, fee_debug = fetch_transaction_history_rows(
+            token=token,
+            tenant_id=tenant_id,
+            tenant_ids=request.session.get("tenant_ids"),
+            start_date=start_dt,
+            end_date=end_dt,
+            debug=True,
+        )
+        fee_rows = [
+            r
+            for r in (fee_rows or [])
+            if _is_txn_fee_row(r) and _is_txn_fixed_bonus_context(r)
+        ]
+        for r in fee_rows:
+            d = _effective_txn_date_any(r)
+            r["display_date"] = _display_date(
+                d, fallback=str(r.get("date") or r.get("occurred_at") or "")
+            )
+        data["service_fee_total"] = sum(float(r.get("amount") or 0) for r in fee_rows)
+        data["service_fee_debug"] = fee_debug
+        data["service_fee_rows"] = fee_rows
+    except Exception:
+        fee_rows = []
 
     clean = []
     total = 0.0

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="container mt-4">
+  <h2>Select Tenant</h2>
+  {% if tenants %}
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-group">
+        <label for="tenantSelect">Organization</label>
+        <select id="tenantSelect" name="organization_id" class="form-control">
+          {% for t in tenants %}
+            {% with tid=t.organizationId %}
+              <option value="{{ tid }}" {% if current_tenant == tid|stringformat:"s" %}selected{% endif %}>
+                {{ t.title }} ({{ tid }})
+              </option>
+            {% endwith %}
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Use Tenant</button>
+    </form>
+  {% else %}
+    <div class="alert alert-warning">No tenant found for this account.</div>
+  {% endif %}
+</div>
+{% endblock %}

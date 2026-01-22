@@ -6,11 +6,12 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from upworkapi.utils import upwork_client
 import traceback
 from django.http import HttpResponse
 import json
-from upworkapi.services.tenant import get_tenant_id
+from upworkapi.services.tenant import get_tenant_id, list_tenants
 
 
 # Create your views here.
@@ -48,6 +49,17 @@ def callback(request):
             raise Exception("access_token not found")
 
         request.session["access_token"] = access_token
+
+        tenant_items = list_tenants(access_token)
+        if tenant_items:
+            request.session["tenant_ids"] = [
+                str(t.get("organizationId"))
+                for t in tenant_items
+                if t.get("organizationId")
+            ]
+            request.session["tenant_names"] = [
+                t.get("title") or "" for t in tenant_items
+            ]
 
         tenant_id = get_tenant_id(access_token)
         if tenant_id:
@@ -148,6 +160,51 @@ def disconnect(request):
         logout(request)
         messages.success(request, "Disconnect Success.")
     return redirect("home")
+
+
+@login_required(login_url="/")
+def tenant_select(request):
+    access_token = request.session.get("access_token")
+    if not access_token:
+        messages.warning(request, "Missing access token. Please login again.")
+        return redirect("auth")
+
+    tenants = list_tenants(access_token)
+    if tenants:
+        request.session["tenant_ids"] = [
+            str(t.get("organizationId"))
+            for t in tenants
+            if t.get("organizationId")
+        ]
+        request.session["tenant_names"] = [t.get("title") or "" for t in tenants]
+    if request.method == "POST":
+        org_id = request.POST.get("organization_id")
+        if not org_id:
+            messages.warning(request, "Please select a tenant.")
+        else:
+            request.session["tenant_id"] = str(org_id)
+            selected = next(
+                (
+                    t
+                    for t in tenants
+                    if str(t.get("organizationId")) == str(org_id)
+                ),
+                None,
+            )
+            if selected:
+                request.session["tenant_name"] = selected.get("title") or ""
+            messages.success(request, "Tenant updated.")
+            return redirect("earning_graph")
+
+    return render(
+        request,
+        "upworkapi/tenant_select.html",
+        {
+            "page_title": "Select Tenant",
+            "tenants": tenants,
+            "current_tenant": request.session.get("tenant_id"),
+        },
+    )
 
 
 def _extract_profile_key(profile_url):

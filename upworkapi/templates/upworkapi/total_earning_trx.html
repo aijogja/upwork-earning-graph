@@ -2,7 +2,7 @@
 
 {% load humanize %}
 
-{% block description %}Input the year, and shown the earning data that presented in graph.{% endblock %}
+{% block description %}Transactional history view (gross/net switch).{% endblock %}
 
 {% block body %}
 
@@ -12,21 +12,41 @@
     height: 420px;
   }
   #client_pie, #client_pie_yearly{
-  width: 100%;
-  min-height: 520px;
+    width: 100%;
+    min-height: 520px;
+  }
+  .col-date{
+    width: 140px;
+    white-space: nowrap;
+  }
+  .col-amount{
+    width: 120px;
+    white-space: nowrap;
+    text-align: right;
+  }
+  .amount{
+    text-align: right;
   }
   @media (max-width: 576px){
     #client_pie, #client_pie_yearly{
       min-height: 420px;
     }
+  }
 </style>
 
 <div class="row">
   <div class="col-lg-12">
 
     <div class="row align-items-center mb-3">
-      <div class="col-lg-12">
+      <div class="col-lg-12 d-flex justify-content-between align-items-center">
         <h3 class="mb-0">Total Earning {{ graph.month }} {{ graph.year }}</h3>
+        <div>
+          {% if net_view %}
+            <a class="btn btn-outline-secondary" href="?year={{ graph.year }}">Gross View</a>
+          {% else %}
+            <a class="btn btn-outline-secondary" href="?year={{ graph.year }}&net=1">Net View</a>
+          {% endif %}
+        </div>
       </div>
     </div>
 
@@ -50,7 +70,7 @@
 
       {% if graph.month %}
       <div class="ml-auto">
-        <a href="{% url 'total_earning_graph' %}?year={{ graph.year }}" class="btn btn-primary">
+        <a href="{% url 'total_earning_graph' %}?year={{ graph.year }}{% if net_view %}&net=1{% endif %}" class="btn btn-primary">
           ← Back
         </a>
       </div>
@@ -65,15 +85,34 @@
           <table>
             <tr>
               <td class="w-50">Total Earning</td>
-              <td>: <span class="text-success">$ {{ graph.total_earning|intcomma }}</span></td>
+              <td>: <span class="text-success">$ {{ graph.total_earning|floatformat:2|intcomma }}</span></td>
             </tr>
             <tr>
               <td class="w-50">Service Fee</td>
               <td>: <span class="text-danger">$ {{ service_fee_total|floatformat:2|intcomma }}</span></td>
             </tr>
+            {% if not service_fee_total %}
+            <tr>
+              <td colspan="2" class="text-muted" style="font-size:0.9rem;">
+                Service fee data may be unavailable from Upwork for older transactions.
+              </td>
+            </tr>
+            {% endif %}
+            {% if membership_total_display %}
+            <tr>
+              <td class="w-50">Membership</td>
+              <td>: <span class="text-danger">$ {{ membership_total_display|floatformat:2|intcomma }}</span></td>
+            </tr>
+            {% endif %}
+            {% if connect_total_display %}
+            <tr>
+              <td class="w-50">Connects</td>
+              <td>: <span class="text-danger">$ {{ connect_total_display|floatformat:2|intcomma }}</span></td>
+            </tr>
+            {% endif %}
             <tr>
               <td class="w-50">Charity <abbr title="2.5% from your total earning">(2.5%)</abbr></td>
-              <td>: <span class="text-danger">$ {{ graph.charity|intcomma }}</span></td>
+              <td>: <span class="text-danger">$ {{ graph.charity|floatformat:2|intcomma }}</span></td>
             </tr>
           </table>
         </p>
@@ -103,60 +142,56 @@
     {% if graph.detail_earning and graph.month %}
     <div class="row mt-5">
       <div class="col-lg-12">
-        <h3>Earning Detail</h3>
+        <h3>Earning Detail (Weekly)</h3>
         <div class="table-responsive">
         <table class="table table-hover table-striped table-condensed">
           <thead>
             <tr>
               <th>#</th>
-              <th class="text-center">Date</th>
+              <th class="text-center">Week</th>
+              <th class="text-center col-date">Date</th>
+              <th>Client</th>
               <th>Description</th>
-              <th class="amount">Amount</th>
+              <th class="text-right col-amount">Amount</th>
             </tr>
           </thead>
           <tbody>
             {% for detail in graph.detail_earning %}
             <tr>
               <td>{{ forloop.counter }}</td>
+              <td class="text-center">{{ detail.week }}</td>
               <td class="text-center">{{ detail.date }}</td>
+              <td>{{ detail.client_name }}</td>
               <td>{{ detail.description }}</td>
-              <td>$ {{ detail.amount|floatformat:2|intcomma }}</td>
+              <td class="text-right col-amount">$ {{ detail.amount|floatformat:2|intcomma }}</td>
             </tr>
             {% endfor %}
           </tbody>
-          <tfoot>
-            <tr class="bg-success">
-              <td></td>
-              <td class="text-center">Total</td>
-              <td></td>
-              <td>$ {{ graph.total_earning|intcomma }}</td>
-            </tr>
-          </tfoot>
         </table>
       </div>
     </div>
 
     {% if service_fee_rows %}
-    <div class="card mt-4">
-      <div class="card-body">
-        <h3>Service Fee (Invoice Details)</h3>
-        <div class="table-responsive">
-          <table class="table table-hover table-striped table-condensed">
+    <div class="card mt-4 w-100">
+      <div class="card-body w-100">
+        <h3>Service Fee</h3>
+        <div class="table-responsive w-100">
+          <table class="table table-hover table-striped table-condensed w-100">
             <thead>
               <tr>
                 <th>#</th>
-                <th>Date</th>
+                <th class="col-date">Date</th>
                 <th>Description</th>
-                <th class="amount">Amount</th>
+                <th class="amount col-amount">Amount</th>
               </tr>
             </thead>
             <tbody>
               {% for fee in service_fee_rows %}
               <tr>
                 <td>{{ forloop.counter }}</td>
-                <td>{{ fee.date|default:fee.occurred_at }}</td>
+                <td>{{ fee.display_date|default:fee.date }}</td>
                 <td>{{ fee.description }}</td>
-                <td>$ {{ fee.amount|floatformat:2|intcomma }}</td>
+                <td class="col-amount">$ {{ fee.amount|floatformat:2|intcomma }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -165,7 +200,48 @@
                 <td></td>
                 <td>Total</td>
                 <td></td>
-                <td>$ {{ service_fee_total|floatformat:2|intcomma }}</td>
+                <td class="col-amount">$ {{ service_fee_total|floatformat:2|intcomma }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if show_membership_connects %}
+    <div class="card mt-4 w-100">
+      <div class="card-body w-100">
+        <h3>Miscellaneous</h3>
+        <div class="table-responsive w-100">
+          <table class="table table-hover table-striped table-condensed w-100">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th class="col-date">Date</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th class="amount col-amount">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in membership_connect_rows %}
+              <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ row.display_date }}</td>
+                <td>{{ row.type }}</td>
+                <td>{{ row.description }}</td>
+                <td class="col-amount">$ {{ row.amount|floatformat:2|intcomma }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr class="bg-success">
+                <td></td>
+                <td>Total</td>
+                <td></td>
+                <td></td>
+                <td class="col-amount">$ {{ misc_total_display|floatformat:2|intcomma }}</td>
               </tr>
             </tfoot>
           </table>
@@ -196,13 +272,12 @@
   $(function () {
     Highcharts.setOptions({ lang: { thousandsSep: ',' } });
 
-    var earningChart = Highcharts.chart('earning_graph', {
+    Highcharts.chart('earning_graph', {
       chart: { type: 'column' },
       title: { text: '{{ page_title }}' },
       subtitle: { text: '{{ graph.title }}' },
       xAxis: { categories: {{ graph.x_axis }} },
       yAxis: { title: { text: 'Dollar ($)' } },
-
       tooltip: {
         formatter: function() {
           return {{ graph.tooltip }}
@@ -223,38 +298,35 @@
               return Highcharts.numberFormat(this.y, 0);
             },
             style: {
-            fontWeight: 'bold',
-            color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
+              fontWeight: 'bold',
+              color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
             }
           }
         },
-  series: {
-    cursor: 'pointer',
-    point: {
-      events: {
-        click: function () {
-          if (this.options.month) {
-            var check_conf = confirm("You are request to check detail month earning.");
-            if (check_conf) {
-              $('input[name=month]').val(this.options.month);
-              $('#year-form').submit();
+        series: {
+          cursor: 'pointer',
+          point: {
+            events: {
+              click: function () {
+                if (this.options.month) {
+                  var check_conf = confirm("You are request to check detail month earning.");
+                  if (check_conf) {
+                    $('input[name=month]').val(this.options.month);
+                    $('#year-form').submit();
+                  }
+                }
+              }
             }
           }
         }
-      }
-    }
-  }
-},
+      },
       series: [{
         name: 'Earning',
         data: {{ graph.report }},
         color: '#2f7eda',
       }],
-      exporting: {
-        url: 'http://export.highcharts.com/',
-        enabled: false,
-      }
-  });
+      exporting: { enabled: false }
+    });
   });
 </script>
 {% endautoescape %}
@@ -275,7 +347,7 @@ $(function () {
       return;
     }
 
-      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+    var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
     Highcharts.chart('client_pie', {
       chart: { type: 'pie' },
@@ -287,11 +359,7 @@ $(function () {
         y: 10,
         useHTML: true
       },
-
       tooltip: { enabled: false },
-
-          // Desktop pie chart style monthly
-
       plotOptions: {
         pie: {
           startAngle: -140,
@@ -300,74 +368,15 @@ $(function () {
           size: '85%',
           dataLabels: {
             enabled: true,
-            useHTML: false,
-            distance: 18,
-            crop: false,
-            overflow: 'none',
-            style: {
-              fontSize: '11px',
-              textOutline: 'none'
-            },
-            formatter: function () {
-              return (
-                '<b>' + this.point.name + '</b><br/>' +
-                '$' + Highcharts.numberFormat(this.point.y, 2) +
-                ' <span style="color:#666">(' +
-                Highcharts.numberFormat(this.percentage, 1) +
-                '%)</span>'
-              );
-            }
+            distance: 20,
+            format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
           }
         }
       },
-
-      // Mobile pie chart style monthly
-      responsive: {
-        rules: [{
-          condition: { maxWidth: 576 },
-          chartOptions: {
-            chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
-            plotOptions: {
-              pie: {
-                startAngle: -140,
-                endAngle: 220,
-                size: '85%',
-                dataLabels: {
-                  enabled: true,
-                  distance: 12,
-                  useHTML: false,
-                  style: { fontSize: '10px', textOverflow: 'none', lineHeight: '12px' },
-                  formatter: function () {
-                    var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
-                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                    return '<b>' + name + '</b><br/>' + pct;
-                  }
-                }
-              }
-            }
-          }
-        }]
-      },
-
-
-      series: [{
-        name: 'Earning',
-        data: pieData
-      }],
-
+      series: [{ name: 'Earning', data: pieData }],
       exporting: { enabled: false }
     });
-
-    setTimeout(function () { monthlyPie.reflow(); }, 0);
-    window.addEventListener('resize', function () { monthlyPie.reflow(); });
-    window.addEventListener('orientationchange', function () { monthlyPie.reflow(); });
-
-  } catch (e) {
-    console.error(e);
-    document.getElementById('client_pie').innerHTML =
-      '<div class="text-danger">Pie chart error</div>';
-  }
+  } catch (e) {}
 });
 </script>
 {% endif %}
@@ -389,20 +398,19 @@ $(function () {
       return;
     }
 
-      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+    var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-      Highcharts.chart('client_pie_yearly', {
-        chart: { type: 'pie' },
-        title: { text: null },
-        subtitle: {
-          text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
-          align: 'center',
-          verticalAlign: 'middle',
-          y: 10,
-          useHTML: true
-        },
+    Highcharts.chart('client_pie_yearly', {
+      chart: { type: 'pie' },
+      title: { text: null },
+      subtitle: {
+        text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+        align: 'center',
+        verticalAlign: 'middle',
+        y: 10,
+        useHTML: true
+      },
       tooltip: { enabled: false },
-
       plotOptions: {
         pie: {
           startAngle: -140,
@@ -411,85 +419,18 @@ $(function () {
           size: '85%',
           dataLabels: {
             enabled: true,
-            useHTML: false,
-            distance: 18,
-            crop: false,
-            overflow: 'justify',
-            style: {
-              fontSize: '10px',
-              textOutline: 'none'
-            },
-            formatter: function () {
-              return (
-                '<b>' + this.point.name + '</b><br/>' +
-                '$' + Highcharts.numberFormat(this.point.y, 2) +
-                ' <span style="color:#666">(' +
-                Highcharts.numberFormat(this.percentage, 1) +
-                '%)</span>'
-              );
-            }
+            distance: 20,
+            format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
           }
         }
       },
-
-      responsive: {
-        rules: [{
-          condition: { maxWidth: 576 },
-          chartOptions: {
-            chart: {
-              height: 420,
-              spacingLeft: 40,
-              spacingRight: 40
-            },
-            plotOptions: {
-              pie: {
-                startAngle: -140,
-                endAngle: 220,
-                size: '88%',
-                dataLabels: {
-                  enabled: true,
-                  useHTML: false,
-                  distance: 12,
-                  crop: false,
-                  overflow: 'none',
-                  style: {
-                    fontSize: '8px',
-                    textOverflow: 'none',
-                    lineHeight: '12px'
-                  },
-                  formatter: function () {
-                    var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
-                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                    return '<b>' + name + '</b><br/>' + pct;
-                  }
-                }
-              }
-            }
-          }
-        }]
-      },
-
-      series: [{
-        name: 'Earning',
-        data: pieData
-      }],
-
+      series: [{ name: 'Earning', data: pieData }],
       exporting: { enabled: false }
     });
-
-    setTimeout(function () { yearlyPie.reflow(); }, 0);
-    window.addEventListener('resize', function () { yearlyPie.reflow(); });
-    window.addEventListener('orientationchange', function () { yearlyPie.reflow(); });
-
-  } catch (e) {
-    console.error(e);
-    document.getElementById('client_pie_yearly').innerHTML =
-      '<div class="text-danger">Pie chart error</div>';
-  }
+  } catch (e) {}
 });
 </script>
 {% endif %}
 {% endautoescape %}
 
-{% endblock js_extra %}
+{% endblock %}
