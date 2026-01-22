@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
@@ -215,6 +216,116 @@ def fetch_fixed_price_transactions(
     return result
 
 
+def fetch_service_fee_history(
+    *,
+    token: Dict[str, Any],
+    tenant_id: Optional[str] = None,
+    tenant_ids: Optional[List[str]] = None,
+    start_date: Union[str, date, datetime],
+    end_date: Union[str, date, datetime],
+    debug: bool = False,
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+    debug_info: Dict[str, Any] = {
+        "endpoint": "transactionHistory/serviceFee",
+        "graphql_attempts": [],
+        "ace_ids": [],
+        "row_count": 0,
+        "sample_keys": [],
+        "sample_row": {},
+    }
+
+    tenant_candidates: List[Optional[str]] = []
+    if tenant_ids:
+        tenant_candidates = [str(t) for t in tenant_ids if str(t)]
+    elif tenant_id:
+        tenant_candidates = [str(tenant_id)]
+    else:
+        tenant_candidates = [None]
+
+    combined_rows: List[Dict[str, Any]] = []
+    combined_debug: List[Dict[str, Any]] = []
+    for tid in tenant_candidates:
+        per_debug = debug_info if (debug and len(tenant_candidates) == 1) else {}
+        rows = _fetch_service_fee_history_graphql(
+            token=token,
+            tenant_id=tid,
+            start_date=start_date,
+            end_date=end_date,
+            debug_info=per_debug if debug else None,
+        )
+        if rows:
+            combined_rows.extend(rows)
+        if debug and len(tenant_candidates) > 1:
+            per_debug["tenant_id"] = tid
+            per_debug["row_count"] = len(rows or [])
+            combined_debug.append(per_debug)
+
+    if debug:
+        debug_info["row_count"] = len(combined_rows)
+        if combined_rows:
+            debug_info["sample_keys"] = list(combined_rows[0].keys())
+            debug_info["sample_row"] = combined_rows[0]
+        if combined_debug:
+            debug_info["tenants"] = combined_debug
+        return combined_rows, debug_info
+    return combined_rows
+
+
+def fetch_transaction_history_rows(
+    *,
+    token: Dict[str, Any],
+    tenant_id: Optional[str] = None,
+    tenant_ids: Optional[List[str]] = None,
+    start_date: Union[str, date, datetime],
+    end_date: Union[str, date, datetime],
+    debug: bool = False,
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+    debug_info: Dict[str, Any] = {
+        "endpoint": "transactionHistory/all",
+        "graphql_attempts": [],
+        "ace_ids": [],
+        "row_count": 0,
+        "sample_keys": [],
+        "sample_row": {},
+    }
+
+    tenant_candidates: List[Optional[str]] = []
+    if tenant_ids:
+        tenant_candidates = [str(t) for t in tenant_ids if str(t)]
+    elif tenant_id:
+        tenant_candidates = [str(tenant_id)]
+    else:
+        tenant_candidates = [None]
+
+    combined_rows: List[Dict[str, Any]] = []
+    combined_debug: List[Dict[str, Any]] = []
+    for tid in tenant_candidates:
+        per_debug = debug_info if (debug and len(tenant_candidates) == 1) else {}
+        rows = _fetch_transaction_history_graphql(
+            token=token,
+            tenant_id=tid,
+            start_date=start_date,
+            end_date=end_date,
+            debug_info=per_debug if debug else None,
+        )
+        if rows:
+            combined_rows.extend(rows)
+        if debug and len(tenant_candidates) > 1:
+            per_debug["tenant_id"] = tid
+            per_debug["row_count"] = len(rows or [])
+            combined_debug.append(per_debug)
+
+    if debug:
+        debug_info["row_count"] = len(combined_rows)
+        if combined_rows:
+            debug_info["sample_keys"] = list(combined_rows[0].keys())
+            debug_info["sample_row"] = combined_rows[0]
+        if combined_debug:
+            debug_info["tenants"] = combined_debug
+        return combined_rows, debug_info
+    return combined_rows
+
+
 def _looks_like_error(payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -417,22 +528,229 @@ def _fetch_fixed_price_graphql(
     return None
 
 
+def _fetch_service_fee_history_graphql(
+    *,
+    token: Dict[str, Any],
+    tenant_id: Optional[str],
+    start_date: Union[str, date, datetime],
+    end_date: Union[str, date, datetime],
+    debug_info: Optional[Dict[str, Any]] = None,
+) -> Optional[List[Dict[str, Any]]]:
+    ace_ids = _graphql_accounting_entity_ids(token, tenant_id, debug_info)
+    if not ace_ids:
+        return None
+
+    query = """
+    query transactionHistory($transactionHistoryFilter: TransactionHistoryFilter) {
+      transactionHistory(transactionHistoryFilter: $transactionHistoryFilter) {
+        transactionDetail {
+          transactionHistoryRow {
+            transactionCreationDate
+            relatedAccountingEntity
+            description
+            descriptionUI
+            type
+            accountingSubtype
+            transactionAmount { rawValue currency displayValue }
+            payment { rawValue currency displayValue }
+            assignmentCompanyName
+            assignmentAgencyName
+            assignmentDeveloperName
+          }
+        }
+      }
+    }
+    """
+
+    date_range = {"rangeStart": _iso_start(start_date), "rangeEnd": _iso_end(end_date)}
+
+    def fetch_rows(filter_vars: Dict[str, Any]) -> List[Dict[str, Any]]:
+        payload = _graphql_execute(
+            token, tenant_id, query, {"transactionHistoryFilter": filter_vars}, debug_info, date_range
+        )
+        if payload is None:
+            return []
+        rows_local = (
+            ((payload.get("data") or {}).get("transactionHistory") or {}).get(
+                "transactionDetail"
+            )
+            or {}
+        ).get("transactionHistoryRow") or []
+        if not isinstance(rows_local, list):
+            return []
+        return rows_local
+
+    filter_vars = {"transactionDateTime_bt": date_range}
+    if ace_ids:
+        filter_vars["aceIds_any"] = ace_ids
+
+    rows = fetch_rows(filter_vars)
+    if not rows and ace_ids:
+        rows = fetch_rows({"transactionDateTime_bt": date_range})
+    if not rows:
+        return []
+
+    out_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        kind = row.get("type") or row.get("accountingSubtype")
+        desc = row.get("description") or ""
+        desc_ui = row.get("descriptionUI") or ""
+        if not _is_service_fee(kind, desc or desc_ui):
+            continue
+
+        amt_obj = row.get("payment") or row.get("transactionAmount") or {}
+        amt = 0.0
+        cur = None
+        try:
+            if isinstance(amt_obj, dict):
+                amt = float(amt_obj.get("rawValue") or 0)
+                cur = amt_obj.get("currency")
+        except Exception:
+            amt = 0.0
+
+        out_rows.append(
+            {
+                "date": row.get("transactionCreationDate"),
+                "occurred_at": row.get("transactionCreationDate"),
+                "amount": amt,
+                "currency": cur,
+                "kind": kind,
+                "description": desc_ui or desc,
+                "client_name": _assignment_name(row),
+            }
+        )
+
+    return out_rows
+
+
+def _fetch_transaction_history_graphql(
+    *,
+    token: Dict[str, Any],
+    tenant_id: Optional[str],
+    start_date: Union[str, date, datetime],
+    end_date: Union[str, date, datetime],
+    debug_info: Optional[Dict[str, Any]] = None,
+) -> Optional[List[Dict[str, Any]]]:
+    ace_ids = _graphql_accounting_entity_ids(token, tenant_id, debug_info)
+    if not ace_ids:
+        return None
+
+    query = """
+    query transactionHistory($transactionHistoryFilter: TransactionHistoryFilter) {
+      transactionHistory(transactionHistoryFilter: $transactionHistoryFilter) {
+        transactionDetail {
+          transactionHistoryRow {
+            transactionCreationDate
+            description
+            descriptionUI
+            type
+            accountingSubtype
+            transactionAmount { rawValue currency displayValue }
+            payment { rawValue currency displayValue }
+            assignmentCompanyName
+            assignmentAgencyName
+            assignmentDeveloperName
+          }
+        }
+      }
+    }
+    """
+
+    date_range = {"rangeStart": _iso_start(start_date), "rangeEnd": _iso_end(end_date)}
+    variables = {
+        "transactionHistoryFilter": {
+            "aceIds_any": ace_ids,
+            "transactionDateTime_bt": date_range,
+        }
+    }
+    payload = _graphql_execute(
+        token, tenant_id, query, variables, debug_info, date_range
+    )
+    if payload is None:
+        return []
+
+    rows = (
+        ((payload.get("data") or {}).get("transactionHistory") or {}).get(
+            "transactionDetail"
+        )
+        or {}
+    ).get("transactionHistoryRow") or []
+    if not isinstance(rows, list):
+        return []
+
+    out_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        amt_obj = row.get("payment") or row.get("transactionAmount") or {}
+        amt = 0.0
+        cur = None
+        try:
+            if isinstance(amt_obj, dict):
+                amt = float(amt_obj.get("rawValue") or 0)
+                cur = amt_obj.get("currency")
+        except Exception:
+            amt = 0.0
+
+        out_rows.append(
+            {
+                "date": row.get("transactionCreationDate"),
+                "occurred_at": row.get("transactionCreationDate"),
+                "amount": amt,
+                "currency": cur,
+                "kind": row.get("type"),
+                "subtype": row.get("accountingSubtype"),
+                "description": row.get("description") or "",
+                "description_ui": row.get("descriptionUI") or "",
+                "client_name": _assignment_name(row),
+            }
+        )
+    return out_rows
+
+
 def _graphql_accounting_entity_ids(
     token: Dict[str, Any],
     tenant_id: Optional[str],
     debug_info: Optional[Dict[str, Any]],
 ) -> List[str]:
-    query = """
-    query accountingEntity {
-      accountingEntity { id }
+    ace_ids: List[str] = []
+
+    query_many = """
+    query accountingEntities {
+      accountingEntities { id }
     }
     """
-    payload = _graphql_execute(token, tenant_id, query, None, debug_info, None)
-    if payload is None:
-        return []
-    entity = (payload.get("data") or {}).get("accountingEntity") or {}
-    ace_id = entity.get("id") if isinstance(entity, dict) else None
-    ace_ids = [str(ace_id)] if ace_id else []
+    payload = _graphql_execute(token, tenant_id, query_many, None, debug_info, None)
+    if payload is not None:
+        entities = (payload.get("data") or {}).get("accountingEntities") or []
+        if isinstance(entities, list):
+            for ent in entities:
+                if isinstance(ent, dict) and ent.get("id"):
+                    ace_ids.append(str(ent.get("id")))
+
+    if not ace_ids:
+        query_one = """
+        query accountingEntity {
+          accountingEntity { id }
+        }
+        """
+        payload = _graphql_execute(token, tenant_id, query_one, None, debug_info, None)
+        if payload is None:
+            return []
+        entity = (payload.get("data") or {}).get("accountingEntity") or {}
+        ace_id = entity.get("id") if isinstance(entity, dict) else None
+        ace_ids = [str(ace_id)] if ace_id else []
+
+    extra_raw = os.getenv("UPWORK_ACE_IDS", "")
+    if extra_raw and not tenant_id:
+        for part in extra_raw.split(","):
+            val = part.strip()
+            if val:
+                ace_ids.append(val)
+
+    ace_ids = list(dict.fromkeys(ace_ids))
     if debug_info is not None:
         debug_info["ace_ids"] = ace_ids
     return ace_ids
@@ -627,6 +945,15 @@ def _is_hourly(kind: Any, description: Any) -> bool:
     if "hrs @" in text or "hr @" in text or "/hr" in text:
         return True
     return False
+
+
+def _is_service_fee(kind: Any, description: Any) -> bool:
+    text = f"{kind or ''} {description or ''}".lower()
+    if "service fee" in text or "upwork fee" in text:
+        return True
+    if "service_fee" in text or "upwork_fee" in text:
+        return True
+    return "service fee" in text or "service_fee" in text
 
 
 def _normalize_date(value: Any) -> str:

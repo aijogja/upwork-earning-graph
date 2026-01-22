@@ -41,6 +41,10 @@
               <td>: <span class="text-success">$ {{ graph.total_earning|intcomma }}</span></td>
             </tr>
             <tr>
+              <td class="w-50">Service Fee</td>
+              <td>: <span class="text-danger">$ {{ service_fee_total|floatformat:2|intcomma }}</span></td>
+            </tr>
+            <tr>
               <td class="w-50">Charity <abbr title="2.5% from your total earning">(2.5%)</abbr></td>
               <td>: <span class="text-danger">$ {{ graph.charity|intcomma }}</span></td>
             </tr>

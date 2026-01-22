@@ -6,7 +6,7 @@ import requests
 UPWORK_GQL_URL = "https://api.upwork.com/graphql"
 
 
-def get_tenant_id(access_token: str) -> str | None:
+def list_tenants(access_token: str) -> list[dict]:
     query = """
     query {
       companySelector {
@@ -30,11 +30,16 @@ def get_tenant_id(access_token: str) -> str | None:
     try:
         payload = resp.json()
     except Exception:
-        return None
+        return []
 
     items = (
         ((payload.get("data") or {}).get("companySelector") or {}).get("items")
     ) or []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def get_tenant_id(access_token: str) -> str | None:
+    items = list_tenants(access_token)
     if not items:
         return None
 
