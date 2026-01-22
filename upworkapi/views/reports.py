@@ -954,7 +954,9 @@ def total_earning_graph_trx(request):
     data["membership_total"] = 0.0
     data["connect_total"] = 0.0
 
-    year = request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    year = (
+        request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
+    )
     month = request.POST.get("month")
     net_view = request.GET.get("net") == "1"
 
@@ -1067,7 +1069,9 @@ def total_earning_graph_trx(request):
             {
                 "display_date": row.get("display_date"),
                 "type": "Membership",
-                "description": row.get("description_ui") or row.get("description") or "",
+                "description": row.get("description_ui")
+                or row.get("description")
+                or "",
                 "amount": -abs(float(row.get("amount") or 0)),
             }
         )
@@ -1076,7 +1080,9 @@ def total_earning_graph_trx(request):
             {
                 "display_date": row.get("display_date"),
                 "type": "Connects",
-                "description": row.get("description_ui") or row.get("description") or "",
+                "description": row.get("description_ui")
+                or row.get("description")
+                or "",
                 "amount": -abs(float(row.get("amount") or 0)),
             }
         )
@@ -1097,7 +1103,7 @@ def total_earning_graph_trx(request):
                 continue
             if d.year != int(year) or d.month != int(month):
                 continue
-            for (wlabel, ws, we) in week_ranges:
+            for wlabel, ws, we in week_ranges:
                 if ws <= d <= we:
                     week_totals[wlabel] += float(row.get("amount") or 0)
                     break
@@ -1108,7 +1114,7 @@ def total_earning_graph_trx(request):
                 continue
             if d.year != int(year) or d.month != int(month):
                 continue
-            for (wlabel, ws, we) in week_ranges:
+            for wlabel, ws, we in week_ranges:
                 if ws <= d <= we:
                     fee_week_totals[wlabel] += float(row.get("amount") or 0)
                     break
@@ -1128,7 +1134,7 @@ def total_earning_graph_trx(request):
             if d.year != int(year) or d.month != int(month):
                 continue
             week_label = ""
-            for (wlabel, ws, we) in week_ranges:
+            for wlabel, ws, we in week_ranges:
                 if ws <= d <= we:
                     week_label = wlabel
                     break
@@ -1139,7 +1145,9 @@ def total_earning_graph_trx(request):
                     "week": week_label,
                     "date": _display_date(d, fallback=d.strftime("%Y-%m-%d")),
                     "client_name": row.get("client_name") or "Unknown",
-                    "description": row.get("description_ui") or row.get("description") or "",
+                    "description": row.get("description_ui")
+                    or row.get("description")
+                    or "",
                     "amount": float(row.get("amount") or 0),
                 }
             )
