@@ -566,7 +566,12 @@ def _fetch_service_fee_history_graphql(
 
     def fetch_rows(filter_vars: Dict[str, Any]) -> List[Dict[str, Any]]:
         payload = _graphql_execute(
-            token, tenant_id, query, {"transactionHistoryFilter": filter_vars}, debug_info, date_range
+            token,
+            tenant_id,
+            query,
+            {"transactionHistoryFilter": filter_vars},
+            debug_info,
+            date_range,
         )
         if payload is None:
             return []

@@ -172,9 +172,7 @@ def tenant_select(request):
     tenants = list_tenants(access_token)
     if tenants:
         request.session["tenant_ids"] = [
-            str(t.get("organizationId"))
-            for t in tenants
-            if t.get("organizationId")
+            str(t.get("organizationId")) for t in tenants if t.get("organizationId")
         ]
         request.session["tenant_names"] = [t.get("title") or "" for t in tenants]
     if request.method == "POST":
@@ -184,11 +182,7 @@ def tenant_select(request):
         else:
             request.session["tenant_id"] = str(org_id)
             selected = next(
-                (
-                    t
-                    for t in tenants
-                    if str(t.get("organizationId")) == str(org_id)
-                ),
+                (t for t in tenants if str(t.get("organizationId")) == str(org_id)),
                 None,
             )
             if selected:
