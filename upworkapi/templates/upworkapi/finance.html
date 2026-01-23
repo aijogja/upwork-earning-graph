@@ -15,10 +15,15 @@
   width: 100%;
   min-height: 520px;
   }
+  .col-date{
+    width: 140px;
+    white-space: nowrap;
+  }
   @media (max-width: 576px){
     #client_pie, #client_pie_yearly{
       min-height: 420px;
     }
+  }
 </style>
 
 <div class="row">
@@ -109,7 +114,8 @@
           <thead>
             <tr>
               <th>#</th>
-              <th class="text-center">Date</th>
+              <th class="text-center col-date">Date</th>
+              <th>Client</th>
               <th>Description</th>
               <th class="amount">Amount</th>
             </tr>
@@ -118,7 +124,8 @@
             {% for detail in graph.detail_earning %}
             <tr>
               <td>{{ forloop.counter }}</td>
-              <td class="text-center">{{ detail.date }}</td>
+              <td class="text-center col-date">{{ detail.display_date|default:detail.date }}</td>
+              <td>{{ detail.client }}</td>
               <td>{{ detail.description }}</td>
               <td>$ {{ detail.amount|floatformat:2|intcomma }}</td>
             </tr>
@@ -128,6 +135,7 @@
             <tr class="bg-success">
               <td></td>
               <td class="text-center">Total</td>
+              <td></td>
               <td></td>
               <td>$ {{ graph.total_earning|intcomma }}</td>
             </tr>
@@ -146,16 +154,18 @@
           <thead>
             <tr>
               <th>#</th>
-              <th class="text-center">Date</th>
+              <th class="text-center col-date">Date</th>
+              <th>Client</th>
               <th>Description</th>
               <th class="amount">Amount</th>
             </tr>
           </thead>
           <tbody>
-            {% for fee in service_fee_rows %}
+              {% for fee in service_fee_rows %}
             <tr>
               <td>{{ forloop.counter }}</td>
-              <td class="text-center">{{ fee.date|default:fee.occurred_at }}</td>
+              <td class="text-center col-date">{{ fee.display_date|default:fee.date|default:fee.occurred_at }}</td>
+              <td>{{ fee.client_name }}</td>
               <td>{{ fee.description }}</td>
               <td>$ {{ fee.amount|floatformat:2|intcomma }}</td>
             </tr>
@@ -166,19 +176,11 @@
               <td></td>
               <td class="text-center">Total</td>
               <td></td>
+              <td></td>
               <td>$ {{ service_fee_total|floatformat:2|intcomma }}</td>
             </tr>
           </tfoot>
         </table>
-      </div>
-    </div>
-    {% endif %}
-
-    {% if graph.month and service_fee_debug %}
-    <div class="row mt-4">
-      <div class="col-lg-12">
-        <h4>Service Fee Debug</h4>
-        <pre style="white-space: pre-wrap;">{{ service_fee_debug|safe }}</pre>
       </div>
     </div>
     {% endif %}

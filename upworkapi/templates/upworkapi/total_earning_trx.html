@@ -160,7 +160,7 @@
             <tr>
               <td>{{ forloop.counter }}</td>
               <td class="text-center">{{ detail.week }}</td>
-              <td class="text-center">{{ detail.date }}</td>
+              <td class="text-center">{{ detail.display_date|default:detail.date }}</td>
               <td>{{ detail.client_name }}</td>
               <td>{{ detail.description }}</td>
               <td class="text-right col-amount">$ {{ detail.amount|floatformat:2|intcomma }}</td>
