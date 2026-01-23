@@ -614,9 +614,20 @@ def _client_from_fixed(detail):
     return _normalize_client_name(client)
 
 
+def _is_excluded_client_label(detail, client_name: str) -> bool:
+    text = f"{client_name or ''} {_get(detail, 'description', '') or ''}".lower()
+    if "fees for additional connects" in text:
+        return True
+    if "fees for freelancer plus membership" in text:
+        return True
+    return False
+
+
 def _accumulate_client_totals(client_totals, details):
     for d in details:
         client = _client_from_detail(d)
+        if _is_excluded_client_label(d, client):
+            continue
         raw = _get(d, "amount", 0) or 0
         s = str(raw).replace("$", "").replace(",", "").strip()
         try:
@@ -680,7 +691,10 @@ def _build_total_earning_data(
     client_totals = defaultdict(float)
     _accumulate_client_totals(client_totals, hourly_graph.get("detail_earning") or [])
     for f in fixed_clean:
-        client_totals[_client_from_fixed(f)] += float(f["amount"] or 0)
+        client = _client_from_fixed(f)
+        if _is_excluded_client_label(f, client):
+            continue
+        client_totals[client] += float(f["amount"] or 0)
 
     detail = []
     if include_detail:
@@ -1303,7 +1317,10 @@ def all_time_earning_graph(request):
                 amt = float(r.get("amount") or 0.0)
                 if amt:
                     fixed_total += amt
-                    client_totals[_client_from_fixed(r)] += amt
+                    client = _client_from_fixed(r)
+                    if _is_excluded_client_label(r, client):
+                        continue
+                    client_totals[client] += amt
 
             totals.append(round(hourly_total + fixed_total, 2))
     except Exception as exc:
@@ -1354,6 +1371,7 @@ def all_time_earning_graph(request):
         for name, total in sorted(
             client_totals.items(), key=lambda x: x[1], reverse=True
         )
+        if not _is_excluded_client_label({"description": name}, name)
     ]
     data["client_pie_data"] = json.dumps(
         [
