@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% load humanize %}
+
+{% block body %}
+
+<style>
+  #earning_graph{
+    width: 100%;
+    height: 420px;
+  }
+  #client_pie{
+    width: 100%;
+    min-height: 520px;
+  }
+  @media (max-width: 576px){
+    #client_pie{
+      min-height: 420px;
+    }
+  }
+</style>
+
+<div class="row">
+  <div class="col-lg-12">
+
+    <div class="row align-items-center mb-3">
+      <div class="col-lg-12 d-flex justify-content-between align-items-center">
+        <h3 class="mb-0">All Time Earning {{ graph.year }}</h3>
+        <a href="{% url 'all_time_earning_graph' %}" class="btn btn-primary">
+          ← Back
+        </a>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-lg-6">
+        <p class="lead mb-3">
+          <table>
+            <tr>
+              <td class="w-50">Total Earning</td>
+              <td>: <span class="text-success">$ {{ graph.total_earning|intcomma }}</span></td>
+            </tr>
+            <tr>
+              <td class="w-50">Service Fee</td>
+              <td>: <span class="text-danger">$ {{ service_fee_total|floatformat:2|intcomma }}</span></td>
+            </tr>
+            <tr>
+              <td class="w-50">Charity <abbr title="2.5% from your total earning">(2.5%)</abbr></td>
+              <td>: <span class="text-danger">$ {{ graph.charity|intcomma }}</span></td>
+            </tr>
+          </table>
+        </p>
+      </div>
+    </div>
+
+    <div id="earning_graph" class="highcharts-graph mb-3"></div>
+
+    <div class="card mt-4">
+      <div class="card-body">
+        <h3 class="mb-3">All Time Earning per Client {{ graph.year }}</h3>
+        <div id="client_pie" style="width:100%; height:420px;"></div>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-lg-12">
+        <div class="table-responsive">
+          <table class="table table-hover table-striped table-condensed">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Client</th>
+                <th class="text-right">Total (USD)</th>
+                <th class="text-right">Percent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in client_rows %}
+              <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ row.name }}</td>
+                <td class="text-right">$ {{ row.total|floatformat:2|intcomma }}</td>
+                <td class="text-right">{{ row.percent|floatformat:2 }}%</td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="4" class="text-center text-muted">No data</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+{% endblock %}
+
+{% block js_extra %}
+{% autoescape off %}
+<script>
+  $(function () {
+    Highcharts.setOptions({ lang: { thousandsSep: ',' } });
+
+    Highcharts.chart('earning_graph', {
+      chart: { type: 'column' },
+      title: { text: '{{ page_title }}' },
+      subtitle: { text: '{{ graph.title }}' },
+      xAxis: { categories: {{ graph.x_axis }} },
+      yAxis: { title: { text: 'Dollar ($)' } },
+      tooltip: {
+        formatter: function() {
+          return '<b>' + this.x + '</b><br/>' + this.series.name + ': $ ' + Highcharts.numberFormat(this.y, 2);
+        }
+      },
+      plotOptions: {
+        column: {
+          dataLabels: {
+            enabled: true,
+            inside: false,
+            verticalAlign: 'top',
+            y: -20,
+            crop: false,
+            overflow: 'allow',
+            formatter: function () {
+              if (!this.y) return '';
+              return Highcharts.numberFormat(this.y, 0);
+            },
+            style: {
+              fontWeight: 'bold',
+              color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
+            }
+          }
+        },
+        series: {
+          cursor: 'pointer',
+          point: {
+            events: {
+              click: function () {
+                if (this.options.month) {
+                  var baseUrl = '{% url "all_time_earning_graph" %}';
+                  baseUrl = baseUrl.replace(/\/$/, '');
+                  window.location.href = baseUrl + '/' + {{ graph.year }} + '/' + this.options.month;
+                }
+              }
+            }
+          }
+        }
+      },
+      series: [{
+        name: 'Earning',
+        data: {{ graph.report }},
+        color: '#2f7eda',
+      }],
+      exporting: { enabled: false }
+    });
+  });
+</script>
+{% endautoescape %}
+
+{% autoescape off %}
+<script>
+$(function () {
+  try {
+    var pieData = {{ client_pie_data|default:"[]"|safe }};
+    pieData = (pieData || []).map(function (p) {
+      return { name: p.name, y: Number(p.y) || 0 };
+    }).filter(function (p) { return p.y > 0; });
+
+    if (!pieData.length) {
+      document.getElementById('client_pie').innerHTML =
+        '<div class="text-muted">No client data</div>';
+      return;
+    }
+
+      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+
+      var yearlyPie = Highcharts.chart('client_pie', {
+        chart: { type: 'pie' },
+        title: { text: null },
+        subtitle: {
+          text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+          align: 'center',
+          verticalAlign: 'middle',
+          y: 10,
+          useHTML: true
+        },
+      tooltip: { enabled: false },
+
+      plotOptions: {
+        pie: {
+          startAngle: -130,
+          endAngle: 230,
+          innerSize: '55%',
+          size: '85%',
+          dataLabels: {
+            enabled: true,
+            useHTML: false,
+            distance: 18,
+            crop: false,
+            overflow: 'justify',
+            style: {
+              fontSize: '10px',
+              textOutline: 'none'
+            },
+            formatter: function () {
+              return (
+                '<b>' + this.point.name + '</b><br/>' +
+                '$' + Highcharts.numberFormat(this.point.y, 2) +
+                ' <span style="color:#666">(' +
+                Highcharts.numberFormat(this.percentage, 1) +
+                '%)</span>'
+              );
+            }
+          }
+        }
+      },
+
+      responsive: {
+        rules: [{
+          condition: { maxWidth: 576 },
+          chartOptions: {
+            chart: {
+              height: 420,
+              spacingLeft: 40,
+              spacingRight: 40
+            },
+            plotOptions: {
+              pie: {
+                startAngle: -130,
+                endAngle: 230,
+                size: '88%',
+                dataLabels: {
+                  enabled: true,
+                  useHTML: false,
+                  distance: 12,
+                  crop: false,
+                  overflow: 'none',
+                  style: {
+                    fontSize: '8px',
+                    textOverflow: 'none',
+                    lineHeight: '12px'
+                  },
+                  formatter: function () {
+                    var name = (this.point.name || '').trim();
+                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+                    return '<b>' + name + '</b><br/>' + pct;
+                  }
+                }
+              }
+            }
+          }
+        }]
+      },
+
+      series: [{
+        name: 'Earning',
+        data: pieData
+      }],
+
+      exporting: { enabled: false }
+    });
+
+    setTimeout(function () { yearlyPie.reflow(); }, 0);
+    window.addEventListener('resize', function () { yearlyPie.reflow(); });
+    window.addEventListener('orientationchange', function () { yearlyPie.reflow(); });
+
+  } catch (e) {
+    console.error(e);
+    document.getElementById('client_pie').innerHTML =
+      '<div class="text-danger">Pie chart error</div>';
+  }
+});
+</script>
+{% endautoescape %}
+
+{% endblock js_extra %}

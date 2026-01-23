@@ -16,6 +16,12 @@
   <link href="{% static 'css/tempusdominus-bootstrap-4.min.css' %}" rel="stylesheet">
 </head>
 <body>
+    <div id="loading-overlay" class="loading-overlay" aria-live="polite">
+      <div class="loading-card">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <div class="loading-text">Loading data, please wait</div>
+      </div>
+    </div>
     <div class="d-flex container flex-column flex-md-row align-items-center p-3 mb-3 bg-white border-bottom">
       <h2 class="my-0 mr-md-auto font-weight-normal text-muted">{{ title }}</h2>
       <ul class="nav nav-pills">
@@ -34,8 +40,11 @@
             <img src="{{ upwork_auth.profile_picture }}" alt="{{ upwork_auth.fullname }}" class="avatar mr-1"> {{ upwork_auth.fullname }}
           </a>
           <div class="dropdown-menu">
-            <a class="dropdown-item" href="{% url 'earning_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Earning Graph</a>
+            <a class="dropdown-item" href="{% url 'earning_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Hourly Graph</a>
+            <a class="dropdown-item" href="{% url 'total_earning_graph' %}"><i class="fa fa-line-chart" aria-hidden="true"></i> Yearly Earning</a>
+            <a class="dropdown-item" href="{% url 'all_time_earning_graph' %}"><i class="fa fa-area-chart" aria-hidden="true"></i> All Time Earning</a>
             <a class="dropdown-item" href="{% url 'timereport_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Time Report Graph</a>
+            <a class="dropdown-item" href="{% url 'fixed_price_graph' %}"><i class="fa fa-bar-chart" aria-hidden="true"></i> Fixed Price &amp; Bonus</a>
             <div class="dropdown-divider"></div>
             <a class="dropdown-item" href="{{ upwork_auth.profile_url }}" target="_blank"><i class="fa fa-external-link" aria-hidden="true"></i> Upwork Profile</a>
             <a class="dropdown-item" href="{% url 'logout' %}"><i class="fa fa-power-off" aria-hidden="true"></i> Disconect</a>
@@ -75,6 +84,80 @@
 <script src="{% static 'js/exporting.js' %}"></script>
 <script src="{% static 'js/moment-2.24.0.min.js' %}"></script>
 <script src="{% static 'js/tempusdominus-bootstrap-4.min.js' %}"></script>
+<style>
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+  }
+  .loading-card {
+    background: #ffffff;
+    border: 1px solid #e5e5e5;
+    border-radius: 10px;
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  }
+  .loading-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid #d0d7de;
+    border-top-color: #2f7eda;
+    border-radius: 50%;
+    animation: loading-spin 1s linear infinite;
+    margin-right: 12px;
+  }
+  .loading-text {
+    color: #333333;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .loading-hidden {
+    display: none;
+  }
+  @keyframes loading-spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+<script>
+  (function () {
+    var overlay = document.getElementById('loading-overlay');
+    if (!overlay) return;
+
+    function showLoading() {
+      overlay.classList.remove('loading-hidden');
+    }
+
+    function hideLoading() {
+      overlay.classList.add('loading-hidden');
+    }
+
+    if (document.readyState === 'complete') {
+      hideLoading();
+    } else {
+      window.addEventListener('load', hideLoading);
+    }
+
+    document.addEventListener('submit', function (event) {
+      if (event.target && event.target.tagName === 'FORM') {
+        showLoading();
+      }
+    });
+
+    document.addEventListener('click', function (event) {
+      var link = event.target.closest && event.target.closest('a');
+      if (!link) return;
+      if (link.getAttribute('target') === '_blank') return;
+      if (link.getAttribute('href') && link.getAttribute('href').startsWith('#')) return;
+      showLoading();
+    });
+  })();
+</script>
 {% if google_analytics_id %}
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id={{google_analytics_id}}"></script>

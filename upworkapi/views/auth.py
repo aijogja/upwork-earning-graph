@@ -6,10 +6,12 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from upworkapi.utils import upwork_client
 import traceback
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponse
 import json
+from upworkapi.services.tenant import get_tenant_id, list_tenants
 
 
 # Create your views here.
@@ -41,6 +43,27 @@ def callback(request):
     try:
         token = client.get_access_token(authz_code)
         request.session["token"] = token
+
+        access_token = _extract_access_token(token, client)
+        if not access_token:
+            raise Exception("access_token not found")
+
+        request.session["access_token"] = access_token
+
+        tenant_items = list_tenants(access_token)
+        if tenant_items:
+            request.session["tenant_ids"] = [
+                str(t.get("organizationId"))
+                for t in tenant_items
+                if t.get("organizationId")
+            ]
+            request.session["tenant_names"] = [
+                t.get("title") or "" for t in tenant_items
+            ]
+
+        tenant_id = get_tenant_id(access_token)
+        if tenant_id:
+            request.session["tenant_id"] = tenant_id
 
         query = """
         query {
@@ -96,13 +119,15 @@ def callback(request):
 
         login(request, auth_user)
 
+        profile_url = user_data["freelancerProfile"]["personalData"].get("profileUrl")
         request.session["upwork_auth"] = {
             "fullname": user_data["freelancerProfile"].get("fullName", ""),
             "profile_picture": user_data.get("photoUrl"),
-            "profile_url": user_data["freelancerProfile"]["personalData"].get(
-                "profileUrl"
-            ),
+            "profile_url": profile_url,
         }
+        profile_key = _extract_profile_key(profile_url)
+        if profile_key:
+            request.session["freelancer_reference"] = profile_key
 
         messages.success(request, "Authentication Success.")
         return redirect("earning_graph")
@@ -135,3 +160,77 @@ def disconnect(request):
         logout(request)
         messages.success(request, "Disconnect Success.")
     return redirect("home")
+
+
+@login_required(login_url="/")
+def tenant_select(request):
+    access_token = request.session.get("access_token")
+    if not access_token:
+        messages.warning(request, "Missing access token. Please login again.")
+        return redirect("auth")
+
+    tenants = list_tenants(access_token)
+    if tenants:
+        request.session["tenant_ids"] = [
+            str(t.get("organizationId")) for t in tenants if t.get("organizationId")
+        ]
+        request.session["tenant_names"] = [t.get("title") or "" for t in tenants]
+    if request.method == "POST":
+        org_id = request.POST.get("organization_id")
+        if not org_id:
+            messages.warning(request, "Please select a tenant.")
+        else:
+            request.session["tenant_id"] = str(org_id)
+            selected = next(
+                (t for t in tenants if str(t.get("organizationId")) == str(org_id)),
+                None,
+            )
+            if selected:
+                request.session["tenant_name"] = selected.get("title") or ""
+            messages.success(request, "Tenant updated.")
+            return redirect("earning_graph")
+
+    return render(
+        request,
+        "upworkapi/tenant_select.html",
+        {
+            "page_title": "Select Tenant",
+            "tenants": tenants,
+            "current_tenant": request.session.get("tenant_id"),
+        },
+    )
+
+
+def _extract_profile_key(profile_url):
+    if not profile_url:
+        return None
+    s = str(profile_url)
+    if "~" in s:
+        return "~" + s.split("~", 1)[1].split("/", 1)[0]
+    parts = [p for p in s.split("/") if p]
+    if parts:
+        last = parts[-1]
+        if last.startswith("~"):
+            return last
+    return None
+
+
+def _extract_access_token(token_obj, client_obj):
+    # object style
+    at = getattr(token_obj, "access_token", None)
+    if at:
+        return at
+
+    # dict style
+    if isinstance(token_obj, dict):
+        at = token_obj.get("access_token") or token_obj.get("token")
+        if at:
+            return at
+
+    # fallback: client.config.token
+    cfg = getattr(client_obj, "config", None)
+    tok = getattr(cfg, "token", None) if cfg else None
+    if isinstance(tok, dict):
+        return tok.get("access_token") or tok.get("token")
+
+    return None
