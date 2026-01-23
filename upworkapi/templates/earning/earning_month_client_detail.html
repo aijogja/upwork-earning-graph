@@ -24,7 +24,7 @@
       <tbody>
         {% for e in rows %}
         <tr>
-          <td>{{ e.date }}</td>
+          <td>{{ e.display_date|default:e.date }}</td>
           <td class="text-right">{{ e.amount|floatformat:2 }}</td>
         </tr>
         {% empty %}

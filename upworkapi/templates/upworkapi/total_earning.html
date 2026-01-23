@@ -118,7 +118,7 @@
             {% for detail in graph.detail_earning %}
             <tr>
               <td>{{ forloop.counter }}</td>
-              <td class="text-center">{{ detail.date }}</td>
+              <td class="text-center">{{ detail.display_date|default:detail.date }}</td>
               <td>{{ detail.description }}</td>
               <td>$ {{ detail.amount|floatformat:2|intcomma }}</td>
             </tr>
@@ -154,7 +154,7 @@
               {% for fee in service_fee_rows %}
               <tr>
                 <td>{{ forloop.counter }}</td>
-                <td>{{ fee.date|default:fee.occurred_at }}</td>
+                <td>{{ fee.display_date|default:fee.date|default:fee.occurred_at }}</td>
                 <td>{{ fee.description }}</td>
                 <td>$ {{ fee.amount|floatformat:2|intcomma }}</td>
               </tr>
