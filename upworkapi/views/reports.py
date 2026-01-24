@@ -557,6 +557,11 @@ def timereport_weekly(token, year):
                         timeReport(timeReportDate_bt: { rangeStart: "%s0101", rangeEnd: "%s1231" }) {
                             dateWorkedOn
                             totalHoursWorked
+                            contract {
+                                offer {
+                                    client { name }
+                                }
+                            }
                         }
                     }
                 }
@@ -572,12 +577,19 @@ def timereport_weekly(token, year):
     total_hours = 0
     weekly_report = []
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
+    per_client = defaultdict(float)
     for m in earning_report:
         week_num = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").isocalendar()[1]
         if weeks.get(week_num):
             weeks[week_num].append(m["totalHoursWorked"])
         else:
             weeks[week_num] = [m["totalHoursWorked"]]
+        client_name = (
+            ((m.get("contract") or {}).get("offer") or {}).get("client") or {}
+        ).get("name") or "Unknown"
+        per_client[_normalize_client_name(client_name)] += float(
+            m.get("totalHoursWorked") or 0
+        )
     for week in list_week:
         if weeks.get(int(week)):
             hours = sum(weeks.get(int(week)))
@@ -606,6 +618,14 @@ def timereport_weekly(token, year):
         work_status = "warning"
 
     tooltip = "'<b>Week '+this.x+'</b><br/>Hour: '+formating_time(this.y)"
+    client_rows = [
+        {"name": k, "total": round(v, 2)}
+        for k, v in sorted(per_client.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    client_pie_data = json.dumps(
+        [{"name": r["name"], "y": float(r["total"])} for r in client_rows if r["total"]]
+    )
+
     data = {
         "year": year,
         "x_axis": list_week,
@@ -615,6 +635,8 @@ def timereport_weekly(token, year):
         "work_status": work_status,
         "title": "Year : %s" % (year),
         "tooltip": tooltip,
+        "client_rows": client_rows,
+        "client_pie_data": client_pie_data,
     }
     return data
 

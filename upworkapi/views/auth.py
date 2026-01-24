@@ -1,5 +1,5 @@
 from urllib.parse import urlparse
-from oauthlib.oauth2.rfc6749.errors import InvalidGrantError
+from oauthlib.oauth2.rfc6749.errors import InvalidGrantError, MissingTokenError
 from upwork.routers import graphql
 from django.shortcuts import render, redirect
 from django.conf import settings
@@ -9,13 +9,15 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from upworkapi.utils import upwork_client
 import traceback
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBadRequest
 import json
 from upworkapi.services.tenant import get_tenant_id, list_tenants
+import logging
 
 
 # Create your views here.
 
+logger = logging.getLogger(__name__)
 
 def auth_view(request):
     client = upwork_client.get_client()
@@ -132,13 +134,33 @@ def callback(request):
         messages.success(request, "Authentication Success.")
         return redirect("earning_graph")
 
+    except MissingTokenError:
+        logger.exception(
+            "OAuth callback missing token. code_present=%s state_present=%s state_match=%s",
+            bool(code),
+            bool(state),
+            bool(expected and state == expected),
+        )
+        raise
     except InvalidGrantError as e:
+        logger.exception(
+            "OAuth callback invalid grant. code_present=%s state_present=%s state_match=%s",
+            bool(code),
+            bool(state),
+            bool(expected and state == expected),
+        )
         return HttpResponse(
             "InvalidGrantError:\n\n" + repr(e) + "\n\n" + traceback.format_exc(),
             status=400,
             content_type="text/plain",
         )
     except Exception as e:
+        logger.exception(
+            "OAuth callback exception. code_present=%s state_present=%s state_match=%s",
+            bool(code),
+            bool(state),
+            bool(expected and state == expected),
+        )
         extra = ""
         if data is not None:
             extra = "\n\nGraphQL response:\n" + json.dumps(data, indent=2)
