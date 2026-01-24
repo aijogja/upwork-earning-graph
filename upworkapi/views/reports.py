@@ -255,7 +255,10 @@ def _parse_txn_work_range(row) -> tuple[date | None, date | None]:
             r"(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{4})\\s*-\\s*(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{4})",
             ["%d %b %Y", "%d %B %Y"],
         ),
-        (r"(\\d{2}-[A-Za-z]{3}-\\d{4})\\s*-\\s*(\\d{2}-[A-Za-z]{3}-\\d{4})", ["%d-%b-%Y"]),
+        (
+            r"(\\d{2}-[A-Za-z]{3}-\\d{4})\\s*-\\s*(\\d{2}-[A-Za-z]{3}-\\d{4})",
+            ["%d-%b-%Y"],
+        ),
     ]
 
     def _parse_with_formats(value: str, formats: list[str]) -> date | None:
