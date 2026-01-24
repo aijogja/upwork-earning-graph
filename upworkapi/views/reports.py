@@ -244,15 +244,37 @@ def _parse_txn_date(row) -> date | None:
 
 def _parse_txn_work_range(row) -> tuple[date | None, date | None]:
     text = f"{row.get('description_ui') or ''} {row.get('description') or ''}"
-    m = re.search(r"(\\d{2}/\\d{2}/\\d{4})\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})", text)
-    if not m:
-        return None, None
-    try:
-        start_dt = datetime.strptime(m.group(1), "%m/%d/%Y").date()
-        end_dt = datetime.strptime(m.group(2), "%m/%d/%Y").date()
-        return start_dt, end_dt
-    except Exception:
-        return None, None
+    patterns = [
+        (r"(\\d{2}/\\d{2}/\\d{4})\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})", ["%m/%d/%Y"]),
+        (r"(\\d{4}-\\d{2}-\\d{2})\\s*-\\s*(\\d{4}-\\d{2}-\\d{2})", ["%Y-%m-%d"]),
+        (
+            r"([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})\\s*-\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})",
+            ["%b %d, %Y", "%B %d, %Y"],
+        ),
+        (
+            r"(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{4})\\s*-\\s*(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{4})",
+            ["%d %b %Y", "%d %B %Y"],
+        ),
+        (r"(\\d{2}-[A-Za-z]{3}-\\d{4})\\s*-\\s*(\\d{2}-[A-Za-z]{3}-\\d{4})", ["%d-%b-%Y"]),
+    ]
+
+    def _parse_with_formats(value: str, formats: list[str]) -> date | None:
+        for fmt in formats:
+            try:
+                return datetime.strptime(value, fmt).date()
+            except Exception:
+                continue
+        return None
+
+    for pattern, formats in patterns:
+        m = re.search(pattern, text)
+        if not m:
+            continue
+        start_dt = _parse_with_formats(m.group(1), formats)
+        end_dt = _parse_with_formats(m.group(2), formats)
+        if start_dt and end_dt:
+            return start_dt, end_dt
+    return None, None
 
 
 def _effective_txn_date(row, *, year: int, month: int) -> date | None:
@@ -420,8 +442,13 @@ def earning_graph_monthly(token, year, month):
     year_str = str(year)
     month_str = f"{month:02d}"
     count_day = monthrange(year, month)[1]
-    start_date = f"{year_str}{month_str}01"
-    end_date = f"{year_str}{month_str}{count_day:02d}"
+    first_day = date(year, month, 1)
+    last_day = date(year, month, count_day)
+    # Query a padded range and filter by dateWorkedOn to avoid missing edge data.
+    query_start = first_day - timedelta(days=7)
+    query_end = last_day + timedelta(days=7)
+    start_date = query_start.strftime("%Y%m%d")
+    end_date = query_end.strftime("%Y%m%d")
 
     query = """query User {
             user {
@@ -451,6 +478,15 @@ def earning_graph_monthly(token, year, month):
     response = graphql.Api(client).execute({"query": query})
 
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
+    filtered_report = []
+    for r in earning_report:
+        try:
+            d = datetime.strptime(r["dateWorkedOn"], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if d.year == year and d.month == month:
+            filtered_report.append(r)
+    earning_report = filtered_report
 
     week_ranges = _month_week_ranges(year, month)
     x_axis = [wlabel for (wlabel, _, _) in week_ranges]
@@ -655,6 +691,12 @@ def _is_excluded_client_label(detail, client_name: str) -> bool:
     if "fees for additional connects" in text:
         return True
     if "fees for freelancer plus membership" in text:
+        return True
+    if "fees for agency plus membership" in text:
+        return True
+    if "subscription renewal charges" in text:
+        return True
+    if "payment - paypal nomorcantikxplor@yahoo.com" in text:
         return True
     return False
 
@@ -1027,16 +1069,20 @@ def total_earning_graph_trx(request):
     if month:
         start_dt = date(int(year), int(month), 1)
         end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+        query_start_dt = start_dt - timedelta(days=14)
+        query_end_dt = end_dt + timedelta(days=14)
     else:
         start_dt = date(int(year), 1, 1)
         end_dt = date(int(year), 12, 31)
+        query_start_dt = start_dt
+        query_end_dt = end_dt
 
     rows, debug_info = fetch_transaction_history_rows(
         token=token,
         tenant_id=request.session.get("tenant_id"),
         tenant_ids=request.session.get("tenant_ids"),
-        start_date=start_dt,
-        end_date=end_dt,
+        start_date=query_start_dt,
+        end_date=query_end_dt,
         debug=True,
     )
     rows = rows or []
