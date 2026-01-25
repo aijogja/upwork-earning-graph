@@ -288,7 +288,16 @@ $(function () {
         useHTML: true
       },
 
-      tooltip: { enabled: false },
+      tooltip: {
+        useHTML: true,
+        formatter: function () {
+          return (
+            '<b>' + this.point.name + '</b><br/>' +
+            '$' + Highcharts.numberFormat(this.point.y, 2) + ' (' +
+            Highcharts.numberFormat(this.percentage, 1) + '%)'
+          );
+        }
+      },
 
           // Desktop pie chart style monthly
 
@@ -401,7 +410,16 @@ $(function () {
           y: 10,
           useHTML: true
         },
-      tooltip: { enabled: false },
+      tooltip: {
+        useHTML: true,
+        formatter: function () {
+          return (
+            '<b>' + this.point.name + '</b><br/>' +
+            '$' + Highcharts.numberFormat(this.point.y, 2) + ' (' +
+            Highcharts.numberFormat(this.percentage, 1) + '%)'
+          );
+        }
+      },
 
       plotOptions: {
         pie: {
