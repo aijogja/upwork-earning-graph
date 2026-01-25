@@ -19,6 +19,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def auth_view(request):
     client = upwork_client.get_client()
     authorization_url, state = client.get_authorization_url()
