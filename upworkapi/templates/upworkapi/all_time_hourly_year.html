@@ -7,7 +7,16 @@
 <style>
   #earning_graph{
     width: 100%;
-    height: 520px;
+    height: 420px;
+  }
+  #client_pie{
+    width: 100%;
+    min-height: 520px;
+  }
+  @media (max-width: 576px){
+    #client_pie{
+      min-height: 420px;
+    }
   }
 </style>
 
@@ -15,8 +24,11 @@
   <div class="col-lg-12">
 
     <div class="row align-items-center mb-3">
-      <div class="col-lg-12">
-        <h3 class="mb-0">All Time Earning</h3>
+      <div class="col-lg-12 d-flex justify-content-between align-items-center">
+        <h3 class="mb-0">All Time Hourly {{ graph.year }}</h3>
+        <a href="{% url 'all_time_hourly_graph' %}" class="btn btn-primary">
+          &larr; Back
+        </a>
       </div>
     </div>
 
@@ -25,16 +37,8 @@
         <p class="lead mb-3">
           <table>
             <tr>
-              <td class="w-50">Total Earning</td>
-              <td>: <span class="text-success">$ {{ graph.total_earning|intcomma }}</span></td>
-            </tr>
-            <tr>
-              <td class="w-50">Service Fee</td>
-              <td>: <span class="text-danger">$ {{ service_fee_total|floatformat:2|intcomma }}</span></td>
-            </tr>
-            <tr>
-              <td class="w-50">Charity <abbr title="2.5% from your total earning">(2.5%)</abbr></td>
-              <td>: <span class="text-danger">$ {{ graph.charity|intcomma }}</span></td>
+              <td class="w-50">Total Hours</td>
+              <td>: <span class="text-success">{{ graph.total_hours|intcomma }}</span></td>
             </tr>
           </table>
         </p>
@@ -45,8 +49,8 @@
 
     <div class="card mt-4">
       <div class="card-body">
-        <h3 class="mb-3">All Time Earning per Client</h3>
-        <div id="client_pie_yearly" style="width:100%; height:420px;"></div>
+        <h3 class="mb-3">All Time Hourly per Client {{ graph.year }}</h3>
+        <div id="client_pie" style="width:100%; height:420px;"></div>
       </div>
     </div>
 
@@ -58,7 +62,7 @@
               <tr>
                 <th>#</th>
                 <th>Client</th>
-                <th class="text-right">Total (USD)</th>
+                <th class="text-right">Total (Hours)</th>
                 <th class="text-right">Percent</th>
               </tr>
             </thead>
@@ -67,7 +71,7 @@
               <tr>
                 <td>{{ forloop.counter }}</td>
                 <td>{{ row.name }}</td>
-                <td class="text-right">$ {{ row.total|floatformat:2|intcomma }}</td>
+                <td class="text-right">{{ row.total|floatformat:2|intcomma }}</td>
                 <td class="text-right">{{ row.percent|floatformat:2 }}%</td>
               </tr>
               {% empty %}
@@ -80,44 +84,6 @@
         </div>
       </div>
     </div>
-
-    {% if unknown_rows %}
-    <div class="row mt-4">
-      <div class="col-lg-12">
-        <div class="card">
-          <div class="card-body">
-            <h3 class="mb-3">Unknown Client Breakdown</h3>
-            <div class="table-responsive">
-              <table class="table table-hover table-striped table-condensed">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Year</th>
-                    <th>Source</th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th class="text-right">Amount (USD)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in unknown_rows %}
-                  <tr>
-                    <td>{{ forloop.counter }}</td>
-                    <td>{{ row.year }}</td>
-                    <td>{{ row.source }}</td>
-                    <td>{{ row.date|default:"-" }}</td>
-                    <td>{{ row.description|default:"-" }}</td>
-                    <td class="text-right">$ {{ row.amount|floatformat:2|intcomma }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    {% endif %}
 
 {% endblock %}
 
@@ -132,37 +98,34 @@
       title: { text: '{{ page_title }}' },
       subtitle: { text: '{{ graph.title }}' },
       xAxis: { categories: {{ graph.x_axis }} },
-      yAxis: { title: { text: 'Dollar ($)' } },
+      yAxis: { title: { text: 'Hours' } },
       tooltip: {
         formatter: function() {
-          return '<b>' + this.x + '</b><br/>' + this.series.name + ': $ ' + Highcharts.numberFormat(this.y, 2);
+          return '<b>' + this.x + '</b><br/>' + this.series.name + ': ' + Highcharts.numberFormat(this.y, 2) + ' hrs';
         }
       },
       plotOptions: {
         column: {
           dataLabels: {
             enabled: true,
+            inside: false,
+            verticalAlign: 'top',
+            y: -20,
+            crop: false,
+            overflow: 'allow',
             formatter: function () {
               if (!this.y) return '';
               return Highcharts.numberFormat(this.y, 0);
-            }
-          }
-        },
-        series: {
-          cursor: 'pointer',
-          point: {
-            events: {
-              click: function () {
-                var baseUrl = '{% url "all_time_earning_graph" %}';
-                baseUrl = baseUrl.replace(/\/$/, '');
-                window.location.href = baseUrl + '/' + this.category;
-              }
+            },
+            style: {
+              fontWeight: 'bold',
+              color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
             }
           }
         }
       },
       series: [{
-        name: 'Earning',
+        name: 'Hours',
         data: {{ graph.report }},
         color: '#2f7eda',
       }],
@@ -171,6 +134,7 @@
   });
 </script>
 {% endautoescape %}
+
 {% autoescape off %}
 <script>
 $(function () {
@@ -181,18 +145,18 @@ $(function () {
     }).filter(function (p) { return p.y > 0; });
 
     if (!pieData.length) {
-      document.getElementById('client_pie_yearly').innerHTML =
+      document.getElementById('client_pie').innerHTML =
         '<div class="text-muted">No client data</div>';
       return;
     }
 
-      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+      var totalHours = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-      var yearlyPie = Highcharts.chart('client_pie_yearly', {
+      var yearlyPie = Highcharts.chart('client_pie', {
         chart: { type: 'pie' },
         title: { text: null },
         subtitle: {
-          text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+          text: 'Total: <b>' + Highcharts.numberFormat(totalHours, 2) + ' hrs</b>',
           align: 'center',
           verticalAlign: 'middle',
           y: 10,
@@ -203,7 +167,7 @@ $(function () {
         formatter: function () {
           return (
             '<b>' + this.point.name + '</b><br/>' +
-            '$' + Highcharts.numberFormat(this.point.y, 2) + ' (' +
+            Highcharts.numberFormat(this.point.y, 2) + ' hrs (' +
             Highcharts.numberFormat(this.percentage, 1) + '%)'
           );
         }
@@ -228,7 +192,7 @@ $(function () {
             formatter: function () {
               return (
                 '<b>' + this.point.name + '</b><br/>' +
-                '$' + Highcharts.numberFormat(this.point.y, 2) +
+                Highcharts.numberFormat(this.point.y, 2) + ' hrs' +
                 ' <span style="color:#666">(' +
                 Highcharts.numberFormat(this.percentage, 1) +
                 '%)</span>'
@@ -265,7 +229,7 @@ $(function () {
                   },
                   formatter: function () {
                     var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    if (name.length > 25) name = name.slice(0, 25) + '...';
                     var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
                     return '<b>' + name + '</b><br/>' + pct;
                   }
@@ -277,7 +241,7 @@ $(function () {
       },
 
       series: [{
-        name: 'Earning',
+        name: 'Hourly Earning',
         data: pieData
       }],
 
@@ -290,7 +254,7 @@ $(function () {
 
   } catch (e) {
     console.error(e);
-    document.getElementById('client_pie_yearly').innerHTML =
+    document.getElementById('client_pie').innerHTML =
       '<div class="text-danger">Pie chart error</div>';
   }
 });

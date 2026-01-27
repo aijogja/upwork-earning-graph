@@ -16,7 +16,7 @@
 
     <div class="row align-items-center mb-3">
       <div class="col-lg-12">
-        <h3 class="mb-0">All Time Earning</h3>
+        <h3 class="mb-0">All Time Hourly</h3>
       </div>
     </div>
 
@@ -25,16 +25,8 @@
         <p class="lead mb-3">
           <table>
             <tr>
-              <td class="w-50">Total Earning</td>
-              <td>: <span class="text-success">$ {{ graph.total_earning|intcomma }}</span></td>
-            </tr>
-            <tr>
-              <td class="w-50">Service Fee</td>
-              <td>: <span class="text-danger">$ {{ service_fee_total|floatformat:2|intcomma }}</span></td>
-            </tr>
-            <tr>
-              <td class="w-50">Charity <abbr title="2.5% from your total earning">(2.5%)</abbr></td>
-              <td>: <span class="text-danger">$ {{ graph.charity|intcomma }}</span></td>
+              <td class="w-50">Total Hours</td>
+              <td>: <span class="text-success">{{ graph.total_hours|intcomma }}</span></td>
             </tr>
           </table>
         </p>
@@ -45,7 +37,7 @@
 
     <div class="card mt-4">
       <div class="card-body">
-        <h3 class="mb-3">All Time Earning per Client</h3>
+        <h3 class="mb-3">All Time Hourly per Client</h3>
         <div id="client_pie_yearly" style="width:100%; height:420px;"></div>
       </div>
     </div>
@@ -58,7 +50,7 @@
               <tr>
                 <th>#</th>
                 <th>Client</th>
-                <th class="text-right">Total (USD)</th>
+                <th class="text-right">Total (Hours)</th>
                 <th class="text-right">Percent</th>
               </tr>
             </thead>
@@ -67,7 +59,7 @@
               <tr>
                 <td>{{ forloop.counter }}</td>
                 <td>{{ row.name }}</td>
-                <td class="text-right">$ {{ row.total|floatformat:2|intcomma }}</td>
+                <td class="text-right">{{ row.total|floatformat:2|intcomma }}</td>
                 <td class="text-right">{{ row.percent|floatformat:2 }}%</td>
               </tr>
               {% empty %}
@@ -81,33 +73,29 @@
       </div>
     </div>
 
-    {% if unknown_rows %}
+    {% if hourly_yearly_rows %}
     <div class="row mt-4">
       <div class="col-lg-12">
         <div class="card">
           <div class="card-body">
-            <h3 class="mb-3">Unknown Client Breakdown</h3>
+            <h3 class="mb-3">Hourly Debug (Yearly Totals)</h3>
             <div class="table-responsive">
               <table class="table table-hover table-striped table-condensed">
                 <thead>
                   <tr>
                     <th>#</th>
                     <th>Year</th>
-                    <th>Source</th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th class="text-right">Amount (USD)</th>
+                    <th class="text-right">Total Hours</th>
+                    <th class="text-right">Row Count</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for row in unknown_rows %}
+                  {% for row in hourly_yearly_rows %}
                   <tr>
                     <td>{{ forloop.counter }}</td>
                     <td>{{ row.year }}</td>
-                    <td>{{ row.source }}</td>
-                    <td>{{ row.date|default:"-" }}</td>
-                    <td>{{ row.description|default:"-" }}</td>
-                    <td class="text-right">$ {{ row.amount|floatformat:2|intcomma }}</td>
+                    <td class="text-right">{{ row.total_hours|floatformat:2|intcomma }}</td>
+                    <td class="text-right">{{ row.row_count|intcomma }}</td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -132,10 +120,10 @@
       title: { text: '{{ page_title }}' },
       subtitle: { text: '{{ graph.title }}' },
       xAxis: { categories: {{ graph.x_axis }} },
-      yAxis: { title: { text: 'Dollar ($)' } },
+      yAxis: { title: { text: 'Hours' } },
       tooltip: {
         formatter: function() {
-          return '<b>' + this.x + '</b><br/>' + this.series.name + ': $ ' + Highcharts.numberFormat(this.y, 2);
+          return '<b>' + this.x + '</b><br/>' + this.series.name + ': ' + Highcharts.numberFormat(this.y, 2) + ' hrs';
         }
       },
       plotOptions: {
@@ -153,7 +141,7 @@
           point: {
             events: {
               click: function () {
-                var baseUrl = '{% url "all_time_earning_graph" %}';
+                var baseUrl = '{% url "all_time_hourly_graph" %}';
                 baseUrl = baseUrl.replace(/\/$/, '');
                 window.location.href = baseUrl + '/' + this.category;
               }
@@ -162,7 +150,7 @@
         }
       },
       series: [{
-        name: 'Earning',
+        name: 'Hours',
         data: {{ graph.report }},
         color: '#2f7eda',
       }],
@@ -186,13 +174,13 @@ $(function () {
       return;
     }
 
-      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+      var totalHours = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
       var yearlyPie = Highcharts.chart('client_pie_yearly', {
         chart: { type: 'pie' },
         title: { text: null },
         subtitle: {
-          text: 'Total: <b>$' + Highcharts.numberFormat(totalUSD, 2) + '</b>',
+          text: 'Total: <b>' + Highcharts.numberFormat(totalHours, 2) + ' hrs</b>',
           align: 'center',
           verticalAlign: 'middle',
           y: 10,
@@ -203,7 +191,7 @@ $(function () {
         formatter: function () {
           return (
             '<b>' + this.point.name + '</b><br/>' +
-            '$' + Highcharts.numberFormat(this.point.y, 2) + ' (' +
+            Highcharts.numberFormat(this.point.y, 2) + ' hrs (' +
             Highcharts.numberFormat(this.percentage, 1) + '%)'
           );
         }
@@ -228,7 +216,7 @@ $(function () {
             formatter: function () {
               return (
                 '<b>' + this.point.name + '</b><br/>' +
-                '$' + Highcharts.numberFormat(this.point.y, 2) +
+                Highcharts.numberFormat(this.point.y, 2) + ' hrs' +
                 ' <span style="color:#666">(' +
                 Highcharts.numberFormat(this.percentage, 1) +
                 '%)</span>'
@@ -265,7 +253,7 @@ $(function () {
                   },
                   formatter: function () {
                     var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    if (name.length > 25) name = name.slice(0, 25) + '...';
                     var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
                     return '<b>' + name + '</b><br/>' + pct;
                   }
@@ -277,7 +265,7 @@ $(function () {
       },
 
       series: [{
-        name: 'Earning',
+        name: 'Hourly Earning',
         data: pieData
       }],
 
