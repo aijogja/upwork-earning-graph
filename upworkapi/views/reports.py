@@ -5,6 +5,7 @@ import calendar
 import json
 import re
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -52,6 +53,16 @@ def _cached_earning_graph_monthly(request, token, year, month):
     if cached is not None:
         return cached
     data = earning_graph_monthly(token, year, month)
+    cache.set(key, data, CACHE_TTL_SECONDS)
+    return data
+
+
+def _cached_timereport_year(request, token, year):
+    key = _cache_key("timereport_year", request.user.id, year)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    data = timereport_weekly(token, year)
     cache.set(key, data, CACHE_TTL_SECONDS)
     return data
 
@@ -574,7 +585,7 @@ def timereport_weekly(token, year):
     response = graphql.Api(client).execute({"query": query})
 
     weeks = {}
-    total_hours = 0
+    total_hours = 0.0
     weekly_report = []
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
     per_client = defaultdict(float)
@@ -626,17 +637,19 @@ def timereport_weekly(token, year):
         [{"name": r["name"], "y": float(r["total"])} for r in client_rows if r["total"]]
     )
 
+    total_hours = round(total_hours, 2)
     data = {
         "year": year,
         "x_axis": list_week,
         "report": weekly_report,
-        "total_hours": int(total_hours),
+        "total_hours": total_hours,
         "avg_week": avg_week,
         "work_status": work_status,
         "title": "Year : %s" % (year),
         "tooltip": tooltip,
         "client_rows": client_rows,
         "client_pie_data": client_pie_data,
+        "row_count": len(earning_report),
     }
     return data
 
@@ -738,6 +751,15 @@ def _accumulate_client_totals(client_totals, details):
         except ValueError:
             amount = 0.0
         client_totals[client] += amount
+
+
+def _amount_from_detail(detail) -> float:
+    raw = _get(detail, "amount", 0) or 0
+    s = str(raw).replace("$", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
 
 def _build_total_earning_data(
@@ -1410,6 +1432,7 @@ def all_time_earning_graph(request):
 
     totals = []
     client_totals = defaultdict(float)
+    unknown_rows = []
     try:
         freelancer_reference = (
             request.session.get("freelancer_reference")
@@ -1422,9 +1445,24 @@ def all_time_earning_graph(request):
         for y in years:
             hourly_graph = _cached_earning_graph_annually(request, token, str(y))
             hourly_total = float(hourly_graph.get("total_earning") or 0)
-            _accumulate_client_totals(
-                client_totals, hourly_graph.get("detail_earning") or []
-            )
+            hourly_details = hourly_graph.get("detail_earning") or []
+            _accumulate_client_totals(client_totals, hourly_details)
+            for d in hourly_details:
+                client = _client_from_detail(d)
+                if client != "Unknown" or _is_excluded_client_label(d, client):
+                    continue
+                amt = _amount_from_detail(d)
+                if not amt:
+                    continue
+                unknown_rows.append(
+                    {
+                        "year": y,
+                        "source": "hourly",
+                        "date": d.get("date") or "",
+                        "description": d.get("description") or "",
+                        "amount": amt,
+                    }
+                )
 
             start_dt = date(y, 1, 1)
             end_dt = date(y, 12, 31)
@@ -1446,6 +1484,16 @@ def all_time_earning_graph(request):
                     if _is_excluded_client_label(r, client):
                         continue
                     client_totals[client] += amt
+                    if client == "Unknown":
+                        unknown_rows.append(
+                            {
+                                "year": y,
+                                "source": "fixed",
+                                "date": r.get("date") or r.get("created") or "",
+                                "description": r.get("description") or "",
+                                "amount": amt,
+                            }
+                        )
 
             totals.append(round(hourly_total + fixed_total, 2))
     except Exception as exc:
@@ -1505,8 +1553,142 @@ def all_time_earning_graph(request):
             if float(r["total"]) > 0
         ]
     )
+    data["unknown_rows"] = sorted(
+        unknown_rows, key=lambda row: abs(row.get("amount") or 0), reverse=True
+    )
 
     return render(request, "upworkapi/all_time_earning.html", data)
+
+
+@login_required(login_url="/")
+def all_time_hourly_graph(request):
+    data = {"page_title": "All Time Hourly"}
+
+    token = request.session.get("token")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    current_year = datetime.now().year
+    start_year = 2010
+    years = list(range(start_year, current_year + 1))
+
+    totals = []
+    client_totals = defaultdict(float)
+    yearly_rows = []
+    try:
+        for y in years:
+            yearly_report = _cached_timereport_year(request, token, str(y))
+            total_hours = float(yearly_report.get("total_hours") or 0)
+            for row in yearly_report.get("client_rows") or []:
+                client_totals[
+                    _normalize_client_name(row.get("name") or "Unknown")
+                ] += float(row.get("total") or 0)
+            totals.append(round(total_hours, 2))
+            yearly_rows.append(
+                {
+                    "year": y,
+                    "total_hours": round(total_hours, 2),
+                    "row_count": yearly_report.get("row_count") or 0,
+                }
+            )
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        totals = [0.0 for _ in years]
+
+    first_idx = 0
+    for i, total in enumerate(totals):
+        if total > 0:
+            first_idx = i
+            break
+
+    years = years[first_idx:] or years
+    totals = totals[first_idx:] or totals
+
+    x_axis = [str(y) for y in years]
+    total_earning = round(sum(totals), 2)
+
+    data["graph"] = {
+        "x_axis": x_axis,
+        "report": totals,
+        "total_hours": total_earning,
+        "title": "All Time Hourly : %s - %s (%s hrs)"
+        % (x_axis[0], x_axis[-1], total_earning),
+    }
+
+    total_sum = sum(client_totals.values()) if client_totals else 0.0
+    data["client_rows"] = [
+        {
+            "name": name,
+            "total": float(total),
+            "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
+        }
+        for name, total in sorted(
+            client_totals.items(), key=lambda x: x[1], reverse=True
+        )
+        if not _is_excluded_client_label({"description": name}, name)
+    ]
+    data["client_pie_data"] = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ]
+    )
+    if settings.DEBUG:
+        data["hourly_yearly_rows"] = yearly_rows
+
+    return render(request, "upworkapi/all_time_hourly.html", data)
+
+
+@login_required(login_url="/")
+def all_time_hourly_year(request, year):
+    data = {"page_title": "All Time Hourly"}
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("all_time_hourly_graph")
+
+    token = request.session.get("token")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    try:
+        graph = _cached_timereport_year(request, token, str(year))
+        data["graph"] = graph
+
+        client_totals = defaultdict(float)
+        for row in graph.get("client_rows") or []:
+            client_totals[
+                _normalize_client_name(row.get("name") or "Unknown")
+            ] += float(row.get("total") or 0)
+
+        total_sum = sum(client_totals.values()) if client_totals else 0.0
+        data["client_rows"] = [
+            {
+                "name": name,
+                "total": float(total),
+                "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
+            }
+            for name, total in sorted(
+                client_totals.items(), key=lambda x: x[1], reverse=True
+            )
+        ]
+        data["client_pie_data"] = json.dumps(
+            [
+                {"name": r["name"], "y": float(r["total"])}
+                for r in data["client_rows"]
+                if float(r["total"]) > 0
+            ]
+        )
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        data["graph"] = timereport_weekly(token, str(year))
+        data["client_rows"] = []
+        data["client_pie_data"] = json.dumps([])
+
+    return render(request, "upworkapi/all_time_hourly_year.html", data)
 
 
 @login_required(login_url="/")
