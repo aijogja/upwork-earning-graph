@@ -30,6 +30,15 @@ def auth_view(request):
 def callback(request):
     code = request.GET.get("code")
     state = request.GET.get("state")
+    oauth_error = request.GET.get("error")
+    oauth_error_desc = request.GET.get("error_description")
+
+    if oauth_error:
+        return HttpResponseBadRequest(
+            "OAuth error: "
+            + str(oauth_error)
+            + (f" ({oauth_error_desc})" if oauth_error_desc else "")
+        )
 
     if request.method != "GET" or not code:
         return HttpResponseBadRequest("Missing ?code. Start from /auth")
@@ -142,7 +151,17 @@ def callback(request):
             bool(state),
             bool(expected and state == expected),
         )
-        raise
+        return HttpResponse(
+            "MissingTokenError: Upwork did not return an access token.\n\n"
+            "Please check:\n"
+            "- UPWORK_PUBLIC_KEY / UPWORK_SECRET_KEY are correct\n"
+            "- UPWORK_CALLBACK_URL exactly matches the callback URL in your Upwork app\n"
+            "- The auth code has not been reused (start again from /auth)\n\n"
+            f"Callback URL: {settings.UPWORK_CALLBACK_URL}\n"
+            f"State matched: {bool(expected and state == expected)}\n",
+            status=400,
+            content_type="text/plain",
+        )
     except InvalidGrantError as e:
         logger.exception(
             "OAuth callback invalid grant. code_present=%s state_present=%s state_match=%s",

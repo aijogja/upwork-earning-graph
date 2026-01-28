@@ -73,40 +73,6 @@
       </div>
     </div>
 
-    {% if hourly_yearly_rows %}
-    <div class="row mt-4">
-      <div class="col-lg-12">
-        <div class="card">
-          <div class="card-body">
-            <h3 class="mb-3">Hourly Debug (Yearly Totals)</h3>
-            <div class="table-responsive">
-              <table class="table table-hover table-striped table-condensed">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Year</th>
-                    <th class="text-right">Total Hours</th>
-                    <th class="text-right">Row Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in hourly_yearly_rows %}
-                  <tr>
-                    <td>{{ forloop.counter }}</td>
-                    <td>{{ row.year }}</td>
-                    <td class="text-right">{{ row.total_hours|floatformat:2|intcomma }}</td>
-                    <td class="text-right">{{ row.row_count|intcomma }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    {% endif %}
-
 {% endblock %}
 
 {% block js_extra %}
