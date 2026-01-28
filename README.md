@@ -2,7 +2,7 @@
 About Upwork Earning Graph (https://upwork.aijogja.com)
 
 ## Requirements
-- Python 3.10
+- Python 3.12
 - Django 4.2
 
 ## Development

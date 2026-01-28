@@ -1,0 +1,25 @@
+services:
+  web:
+    image: ghcr.io/aijogja/upwork-earning-graph:latest
+    container_name: 'upwork-earning-graph'
+    restart: unless-stopped
+    build: .
+    command: sh -c "\
+      sleep 5 && \
+      python manage.py migrate && \
+      python manage.py collectstatic --noinput && \
+      gunicorn upwork_earning_graph.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120"
+    volumes:
+      - django_static_dir:/app/static
+      - django_dir_upload:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - docker.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "localhost:127.0.0.1"
+
+volumes:
+  django_static_dir:
+  django_dir_upload:

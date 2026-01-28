@@ -132,8 +132,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
 
 STATIC_URL = "/static/"
+STATIC_ROOT = env.str("STATIC_DIR", "static")
 
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
+MEDIA_URL = "/media/"
+MEDIA_ROOT = env.str("MEDIA_DIR", "media")
 
 # SMTP
 if os.environ.get("EMAIL_BACKEND") == "smtp":
