@@ -589,8 +589,20 @@ def timereport_weekly(token, year):
     weekly_report = []
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
     per_client = defaultdict(float)
+    min_date = None
+    max_date = None
+    raw_total_hours = 0.0
     for m in earning_report:
+        try:
+            d = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").date()
+            if min_date is None or d < min_date:
+                min_date = d
+            if max_date is None or d > max_date:
+                max_date = d
+        except Exception:
+            d = None
         week_num = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").isocalendar()[1]
+        raw_total_hours += float(m.get("totalHoursWorked") or 0)
         if weeks.get(week_num):
             weeks[week_num].append(m["totalHoursWorked"])
         else:
@@ -638,6 +650,8 @@ def timereport_weekly(token, year):
     )
 
     total_hours = round(total_hours, 2)
+    total_hours = round(total_hours, 2)
+    raw_total_hours = round(raw_total_hours, 2)
     data = {
         "year": year,
         "x_axis": list_week,
@@ -650,6 +664,9 @@ def timereport_weekly(token, year):
         "client_rows": client_rows,
         "client_pie_data": client_pie_data,
         "row_count": len(earning_report),
+        "raw_total_hours": raw_total_hours,
+        "min_date": min_date.isoformat() if min_date else None,
+        "max_date": max_date.isoformat() if max_date else None,
     }
     return data
 
@@ -1575,7 +1592,6 @@ def all_time_hourly_graph(request):
 
     totals = []
     client_totals = defaultdict(float)
-    yearly_rows = []
     try:
         for y in years:
             yearly_report = _cached_timereport_year(request, token, str(y))
@@ -1585,13 +1601,6 @@ def all_time_hourly_graph(request):
                     _normalize_client_name(row.get("name") or "Unknown")
                 ] += float(row.get("total") or 0)
             totals.append(round(total_hours, 2))
-            yearly_rows.append(
-                {
-                    "year": y,
-                    "total_hours": round(total_hours, 2),
-                    "row_count": yearly_report.get("row_count") or 0,
-                }
-            )
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         totals = [0.0 for _ in years]
@@ -1635,9 +1644,6 @@ def all_time_hourly_graph(request):
             if float(r["total"]) > 0
         ]
     )
-    if settings.DEBUG:
-        data["hourly_yearly_rows"] = yearly_rows
-
     return render(request, "upworkapi/all_time_hourly.html", data)
 
 
