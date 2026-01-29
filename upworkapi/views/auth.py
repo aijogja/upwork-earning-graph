@@ -1,5 +1,5 @@
 from urllib.parse import urlparse
-from oauthlib.oauth2.rfc6749.errors import InvalidGrantError
+from oauthlib.oauth2.rfc6749.errors import InvalidGrantError, MissingTokenError
 from upwork.routers import graphql
 from django.shortcuts import render, redirect
 from django.conf import settings
@@ -9,12 +9,15 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from upworkapi.utils import upwork_client
 import traceback
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBadRequest
 import json
 from upworkapi.services.tenant import get_tenant_id, list_tenants
+import logging
 
 
 # Create your views here.
+
+logger = logging.getLogger(__name__)
 
 
 def auth_view(request):
@@ -27,6 +30,15 @@ def auth_view(request):
 def callback(request):
     code = request.GET.get("code")
     state = request.GET.get("state")
+    oauth_error = request.GET.get("error")
+    oauth_error_desc = request.GET.get("error_description")
+
+    if oauth_error:
+        return HttpResponseBadRequest(
+            "OAuth error: "
+            + str(oauth_error)
+            + (f" ({oauth_error_desc})" if oauth_error_desc else "")
+        )
 
     if request.method != "GET" or not code:
         return HttpResponseBadRequest("Missing ?code. Start from /auth")
@@ -132,13 +144,43 @@ def callback(request):
         messages.success(request, "Authentication Success.")
         return redirect("earning_graph")
 
+    except MissingTokenError:
+        logger.exception(
+            "OAuth callback missing token. code_present=%s state_present=%s state_match=%s",
+            bool(code),
+            bool(state),
+            bool(expected and state == expected),
+        )
+        return HttpResponse(
+            "MissingTokenError: Upwork did not return an access token.\n\n"
+            "Please check:\n"
+            "- UPWORK_PUBLIC_KEY / UPWORK_SECRET_KEY are correct\n"
+            "- UPWORK_CALLBACK_URL exactly matches the callback URL in your Upwork app\n"
+            "- The auth code has not been reused (start again from /auth)\n\n"
+            f"Callback URL: {settings.UPWORK_CALLBACK_URL}\n"
+            f"State matched: {bool(expected and state == expected)}\n",
+            status=400,
+            content_type="text/plain",
+        )
     except InvalidGrantError as e:
+        logger.exception(
+            "OAuth callback invalid grant. code_present=%s state_present=%s state_match=%s",
+            bool(code),
+            bool(state),
+            bool(expected and state == expected),
+        )
         return HttpResponse(
             "InvalidGrantError:\n\n" + repr(e) + "\n\n" + traceback.format_exc(),
             status=400,
             content_type="text/plain",
         )
     except Exception as e:
+        logger.exception(
+            "OAuth callback exception. code_present=%s state_present=%s state_match=%s",
+            bool(code),
+            bool(state),
+            bool(expected and state == expected),
+        )
         extra = ""
         if data is not None:
             extra = "\n\nGraphQL response:\n" + json.dumps(data, indent=2)

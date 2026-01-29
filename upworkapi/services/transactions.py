@@ -31,10 +31,34 @@ def fetch_fixed_price_transactions(
     token: Dict[str, Any],
     freelancer_reference: str,
     tenant_id: Optional[str] = None,
+    tenant_ids: Optional[List[str]] = None,
     start_date: Union[str, date, datetime],
     end_date: Union[str, date, datetime],
     debug: bool = False,
 ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+    if tenant_ids:
+        combined: List[Dict[str, Any]] = []
+        debug_items: List[Dict[str, Any]] = []
+        for tid in [t for t in tenant_ids if t]:
+            result = fetch_fixed_price_transactions(
+                token=token,
+                freelancer_reference=freelancer_reference,
+                tenant_id=tid,
+                tenant_ids=None,
+                start_date=start_date,
+                end_date=end_date,
+                debug=debug,
+            )
+            if debug:
+                rows, info = result
+                combined.extend(rows)
+                debug_items.append({"tenant_id": tid, "debug": info})
+            else:
+                combined.extend(result)
+        if debug:
+            return combined, {"tenants": debug_items}
+        return combined
+
     client = upwork_client.get_client(token)
     if tenant_id:
         client.set_org_uid_header(tenant_id)

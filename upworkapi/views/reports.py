@@ -5,6 +5,7 @@ import calendar
 import json
 import re
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -56,12 +57,23 @@ def _cached_earning_graph_monthly(request, token, year, month):
     return data
 
 
+def _cached_timereport_year(request, token, year):
+    key = _cache_key("timereport_year", request.user.id, year)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    data = timereport_weekly(token, year)
+    cache.set(key, data, CACHE_TTL_SECONDS)
+    return data
+
+
 def _cached_fixed_price_transactions(
     request,
     *,
     token,
     freelancer_reference,
     tenant_id,
+    tenant_ids=None,
     start_date,
     end_date,
     debug=False,
@@ -76,10 +88,14 @@ def _cached_fixed_price_transactions(
             debug=debug,
         )
 
+    tenant_ids_part = None
+    if tenant_ids:
+        tenant_ids_part = ",".join(sorted(str(t) for t in tenant_ids if t))
     key = _cache_key(
         "fixed_tx",
         request.user.id,
         tenant_id or "",
+        tenant_ids_part,
         freelancer_reference,
         _date_key(start_date),
         _date_key(end_date),
@@ -92,6 +108,7 @@ def _cached_fixed_price_transactions(
         token=token,
         freelancer_reference=freelancer_reference,
         tenant_id=tenant_id,
+        tenant_ids=tenant_ids,
         start_date=start_date,
         end_date=end_date,
         debug=debug,
@@ -142,7 +159,7 @@ def _service_fee_summary(
     include_rows=False,
     debug=False,
 ):
-    rows, debug_info = fetch_service_fee_history(
+    result = fetch_service_fee_history(
         token=request.session.get("token"),
         tenant_id=request.session.get("tenant_id"),
         tenant_ids=request.session.get("tenant_ids"),
@@ -150,8 +167,18 @@ def _service_fee_summary(
         end_date=end_date,
         debug=debug,
     )
+    if debug:
+        rows, debug_info = result
+    else:
+        rows = result
+        debug_info = None
     rows = rows or []
     rows.sort(key=lambda x: x.get("date") or x.get("occurred_at") or "")
+    for row in rows:
+        row["display_date"] = _display_date_str(
+            row.get("date") or row.get("occurred_at") or ""
+        )
+        row["client_name"] = _normalize_client_name(_extract_client_name(row))
     total = sum(float(r.get("amount") or 0) for r in rows)
     if not include_rows:
         rows = []
@@ -228,15 +255,40 @@ def _parse_txn_date(row) -> date | None:
 
 def _parse_txn_work_range(row) -> tuple[date | None, date | None]:
     text = f"{row.get('description_ui') or ''} {row.get('description') or ''}"
-    m = re.search(r"(\\d{2}/\\d{2}/\\d{4})\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})", text)
-    if not m:
-        return None, None
-    try:
-        start_dt = datetime.strptime(m.group(1), "%m/%d/%Y").date()
-        end_dt = datetime.strptime(m.group(2), "%m/%d/%Y").date()
-        return start_dt, end_dt
-    except Exception:
-        return None, None
+    patterns = [
+        (r"(\\d{2}/\\d{2}/\\d{4})\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})", ["%m/%d/%Y"]),
+        (r"(\\d{4}-\\d{2}-\\d{2})\\s*-\\s*(\\d{4}-\\d{2}-\\d{2})", ["%Y-%m-%d"]),
+        (
+            r"([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})\\s*-\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})",
+            ["%b %d, %Y", "%B %d, %Y"],
+        ),
+        (
+            r"(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{4})\\s*-\\s*(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{4})",
+            ["%d %b %Y", "%d %B %Y"],
+        ),
+        (
+            r"(\\d{2}-[A-Za-z]{3}-\\d{4})\\s*-\\s*(\\d{2}-[A-Za-z]{3}-\\d{4})",
+            ["%d-%b-%Y"],
+        ),
+    ]
+
+    def _parse_with_formats(value: str, formats: list[str]) -> date | None:
+        for fmt in formats:
+            try:
+                return datetime.strptime(value, fmt).date()
+            except Exception:
+                continue
+        return None
+
+    for pattern, formats in patterns:
+        m = re.search(pattern, text)
+        if not m:
+            continue
+        start_dt = _parse_with_formats(m.group(1), formats)
+        end_dt = _parse_with_formats(m.group(2), formats)
+        if start_dt and end_dt:
+            return start_dt, end_dt
+    return None, None
 
 
 def _effective_txn_date(row, *, year: int, month: int) -> date | None:
@@ -260,7 +312,27 @@ def _effective_txn_date_any(row) -> date | None:
 def _display_date(value: date | None, fallback: str = "") -> str:
     if not value:
         return fallback
-    return value.strftime("%d-%b-%Y")
+    return value.strftime("%d-%m-%Y")
+
+
+def _display_date_str(value: str) -> str:
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%d-%b-%Y",
+        "%d-%m-%Y",
+    ):
+        try:
+            return datetime.strptime(s, fmt).strftime("%d-%m-%Y")
+        except Exception:
+            continue
+    return s
 
 
 def _month_week_ranges(year: int, month: int):
@@ -353,7 +425,7 @@ def earning_graph_annually(token, year):
         memo = r.get("memo") or ""
         detail.append(
             {
-                "date": r["dateWorkedOn"],
+                "date": _display_date(dt, fallback=r["dateWorkedOn"]),
                 "month": str(dt.month),
                 "amount": r.get("totalCharges") or 0,
                 "description": f"{client_name} - {memo}",
@@ -384,8 +456,13 @@ def earning_graph_monthly(token, year, month):
     year_str = str(year)
     month_str = f"{month:02d}"
     count_day = monthrange(year, month)[1]
-    start_date = f"{year_str}{month_str}01"
-    end_date = f"{year_str}{month_str}{count_day:02d}"
+    first_day = date(year, month, 1)
+    last_day = date(year, month, count_day)
+    # Query a padded range and filter by dateWorkedOn to avoid missing edge data.
+    query_start = first_day - timedelta(days=7)
+    query_end = last_day + timedelta(days=7)
+    start_date = query_start.strftime("%Y%m%d")
+    end_date = query_end.strftime("%Y%m%d")
 
     query = """query User {
             user {
@@ -415,6 +492,15 @@ def earning_graph_monthly(token, year, month):
     response = graphql.Api(client).execute({"query": query})
 
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
+    filtered_report = []
+    for r in earning_report:
+        try:
+            d = datetime.strptime(r["dateWorkedOn"], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if d.year == year and d.month == month:
+            filtered_report.append(r)
+    earning_report = filtered_report
 
     week_ranges = _month_week_ranges(year, month)
     x_axis = [wlabel for (wlabel, _, _) in week_ranges]
@@ -436,7 +522,7 @@ def earning_graph_monthly(token, year, month):
                 ) or "Unknown"
                 list_report.append(
                     {
-                        "date": m["dateWorkedOn"],
+                        "date": _display_date(d, fallback=m["dateWorkedOn"]),
                         "week": wlabel,
                         "amount": m["totalCharges"],
                         "description": "%s - %s" % (client_name, m["memo"]),
@@ -482,6 +568,11 @@ def timereport_weekly(token, year):
                         timeReport(timeReportDate_bt: { rangeStart: "%s0101", rangeEnd: "%s1231" }) {
                             dateWorkedOn
                             totalHoursWorked
+                            contract {
+                                offer {
+                                    client { name }
+                                }
+                            }
                         }
                     }
                 }
@@ -494,15 +585,34 @@ def timereport_weekly(token, year):
     response = graphql.Api(client).execute({"query": query})
 
     weeks = {}
-    total_hours = 0
+    total_hours = 0.0
     weekly_report = []
     earning_report = response["data"]["user"]["freelancerProfile"]["user"]["timeReport"]
+    per_client = defaultdict(float)
+    min_date = None
+    max_date = None
+    raw_total_hours = 0.0
     for m in earning_report:
+        try:
+            d = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").date()
+            if min_date is None or d < min_date:
+                min_date = d
+            if max_date is None or d > max_date:
+                max_date = d
+        except Exception:
+            d = None
         week_num = datetime.strptime(m["dateWorkedOn"], "%Y-%m-%d").isocalendar()[1]
+        raw_total_hours += float(m.get("totalHoursWorked") or 0)
         if weeks.get(week_num):
             weeks[week_num].append(m["totalHoursWorked"])
         else:
             weeks[week_num] = [m["totalHoursWorked"]]
+        client_name = (
+            ((m.get("contract") or {}).get("offer") or {}).get("client") or {}
+        ).get("name") or "Unknown"
+        per_client[_normalize_client_name(client_name)] += float(
+            m.get("totalHoursWorked") or 0
+        )
     for week in list_week:
         if weeks.get(int(week)):
             hours = sum(weeks.get(int(week)))
@@ -531,15 +641,32 @@ def timereport_weekly(token, year):
         work_status = "warning"
 
     tooltip = "'<b>Week '+this.x+'</b><br/>Hour: '+formating_time(this.y)"
+    client_rows = [
+        {"name": k, "total": round(v, 2)}
+        for k, v in sorted(per_client.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    client_pie_data = json.dumps(
+        [{"name": r["name"], "y": float(r["total"])} for r in client_rows if r["total"]]
+    )
+
+    total_hours = round(total_hours, 2)
+    total_hours = round(total_hours, 2)
+    raw_total_hours = round(raw_total_hours, 2)
     data = {
         "year": year,
         "x_axis": list_week,
         "report": weekly_report,
-        "total_hours": int(total_hours),
+        "total_hours": total_hours,
         "avg_week": avg_week,
         "work_status": work_status,
         "title": "Year : %s" % (year),
         "tooltip": tooltip,
+        "client_rows": client_rows,
+        "client_pie_data": client_pie_data,
+        "row_count": len(earning_report),
+        "raw_total_hours": raw_total_hours,
+        "min_date": min_date.isoformat() if min_date else None,
+        "max_date": max_date.isoformat() if max_date else None,
     }
     return data
 
@@ -620,6 +747,12 @@ def _is_excluded_client_label(detail, client_name: str) -> bool:
         return True
     if "fees for freelancer plus membership" in text:
         return True
+    if "fees for agency plus membership" in text:
+        return True
+    if "subscription renewal charges" in text:
+        return True
+    if "payment - paypal nomorcantikxplor@yahoo.com" in text:
+        return True
     return False
 
 
@@ -635,6 +768,15 @@ def _accumulate_client_totals(client_totals, details):
         except ValueError:
             amount = 0.0
         client_totals[client] += amount
+
+
+def _amount_from_detail(detail) -> float:
+    raw = _get(detail, "amount", 0) or 0
+    s = str(raw).replace("$", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
 
 def _build_total_earning_data(
@@ -665,6 +807,7 @@ def _build_total_earning_data(
         token=token,
         freelancer_reference=freelancer_reference,
         tenant_id=tenant_id,
+        tenant_ids=request.session.get("tenant_ids"),
         start_date=start_dt,
         end_date=end_dt,
     )
@@ -676,11 +819,13 @@ def _build_total_earning_data(
         amt = float(r.get("amount") or 0.0)
         if amt == 0:
             continue
+        display_date = _display_date_str(occurred_at)
         client = _normalize_client_name(r.get("client_name") or "Unknown")
         desc = r.get("description") or ""
         fixed_clean.append(
             {
                 "date": occurred_at,
+                "display_date": display_date or occurred_at,
                 "amount": amt,
                 "description": desc,
                 "client_name": client,
@@ -703,7 +848,7 @@ def _build_total_earning_data(
         for f in fixed_clean:
             detail.append(
                 {
-                    "date": f["date"],
+                    "date": f.get("display_date") or _display_date_str(f["date"]),
                     "amount": f["amount"],
                     "description": f'{f.get("client_name") or "Unknown"} - {f.get("description") or ""}',
                     "client_name": f.get("client_name") or "Unknown",
@@ -841,6 +986,10 @@ def earning_graph(request):
         totals = defaultdict(float)
         _accumulate_client_totals(totals, details)
 
+        for d in details:
+            client_name = _normalize_client_name(_extract_client_name(d))
+            d["client"] = client_name
+
         data["client_rows"] = [
             {"name": name, "total": float(total)}
             for name, total in sorted(totals.items(), key=lambda x: x[1], reverse=True)
@@ -856,28 +1005,26 @@ def earning_graph(request):
         if graph_obj.get("month"):
             start_dt = date(int(year), int(month), 1)
             end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
-            fee_rows, fee_total, fee_debug = _service_fee_summary(
+            fee_rows, fee_total, _fee_debug = _service_fee_summary(
                 request,
                 start_date=start_dt,
                 end_date=end_dt,
                 include_rows=True,
-                debug=True,
+                debug=False,
             )
             data["service_fee_rows"] = fee_rows
             data["service_fee_total"] = fee_total
-            data["service_fee_debug"] = fee_debug
         else:
             start_dt = date(int(year), 1, 1)
             end_dt = date(int(year), 12, 31)
-            _, fee_total, fee_debug = _service_fee_summary(
+            _, fee_total, _fee_debug = _service_fee_summary(
                 request,
                 start_date=start_dt,
                 end_date=end_dt,
                 include_rows=False,
-                debug=True,
+                debug=False,
             )
             data["service_fee_total"] = fee_total
-            data["service_fee_debug"] = fee_debug
         return render(request, "upworkapi/finance.html", data)
 
     except InvalidGrantError:
@@ -986,16 +1133,20 @@ def total_earning_graph_trx(request):
     if month:
         start_dt = date(int(year), int(month), 1)
         end_dt = date(int(year), int(month), monthrange(int(year), int(month))[1])
+        query_start_dt = start_dt - timedelta(days=14)
+        query_end_dt = end_dt + timedelta(days=14)
     else:
         start_dt = date(int(year), 1, 1)
         end_dt = date(int(year), 12, 31)
+        query_start_dt = start_dt
+        query_end_dt = end_dt
 
     rows, debug_info = fetch_transaction_history_rows(
         token=token,
         tenant_id=request.session.get("tenant_id"),
         tenant_ids=request.session.get("tenant_ids"),
-        start_date=start_dt,
-        end_date=end_dt,
+        start_date=query_start_dt,
+        end_date=query_end_dt,
         debug=True,
     )
     rows = rows or []
@@ -1053,16 +1204,28 @@ def total_earning_graph_trx(request):
         row["display_date"] = _display_date(
             d, fallback=str(row.get("date") or row.get("occurred_at") or "")
         )
+        if row.get("display_date") == (row.get("date") or row.get("occurred_at")):
+            row["display_date"] = _display_date_str(
+                row.get("date") or row.get("occurred_at") or ""
+            )
     for row in data["membership_rows"]:
         d = _parse_txn_date(row)
         row["display_date"] = _display_date(
             d, fallback=str(row.get("date") or row.get("occurred_at") or "")
         )
+        if row.get("display_date") == (row.get("date") or row.get("occurred_at")):
+            row["display_date"] = _display_date_str(
+                row.get("date") or row.get("occurred_at") or ""
+            )
     for row in data["connect_rows"]:
         d = _parse_txn_date(row)
         row["display_date"] = _display_date(
             d, fallback=str(row.get("date") or row.get("occurred_at") or "")
         )
+        if row.get("display_date") == (row.get("date") or row.get("occurred_at")):
+            row["display_date"] = _display_date_str(
+                row.get("date") or row.get("occurred_at") or ""
+            )
     fee_total = sum(float(r.get("amount") or 0) for r in period_fee_rows)
     membership_total = sum(float(r.get("amount") or 0) for r in data["membership_rows"])
     connect_total = sum(float(r.get("amount") or 0) for r in data["connect_rows"])
@@ -1286,6 +1449,7 @@ def all_time_earning_graph(request):
 
     totals = []
     client_totals = defaultdict(float)
+    unknown_rows = []
     try:
         freelancer_reference = (
             request.session.get("freelancer_reference")
@@ -1298,9 +1462,24 @@ def all_time_earning_graph(request):
         for y in years:
             hourly_graph = _cached_earning_graph_annually(request, token, str(y))
             hourly_total = float(hourly_graph.get("total_earning") or 0)
-            _accumulate_client_totals(
-                client_totals, hourly_graph.get("detail_earning") or []
-            )
+            hourly_details = hourly_graph.get("detail_earning") or []
+            _accumulate_client_totals(client_totals, hourly_details)
+            for d in hourly_details:
+                client = _client_from_detail(d)
+                if client != "Unknown" or _is_excluded_client_label(d, client):
+                    continue
+                amt = _amount_from_detail(d)
+                if not amt:
+                    continue
+                unknown_rows.append(
+                    {
+                        "year": y,
+                        "source": "hourly",
+                        "date": d.get("date") or "",
+                        "description": d.get("description") or "",
+                        "amount": amt,
+                    }
+                )
 
             start_dt = date(y, 1, 1)
             end_dt = date(y, 12, 31)
@@ -1309,6 +1488,7 @@ def all_time_earning_graph(request):
                 token=token,
                 freelancer_reference=freelancer_reference,
                 tenant_id=tenant_id,
+                tenant_ids=request.session.get("tenant_ids"),
                 start_date=start_dt,
                 end_date=end_dt,
             )
@@ -1321,6 +1501,16 @@ def all_time_earning_graph(request):
                     if _is_excluded_client_label(r, client):
                         continue
                     client_totals[client] += amt
+                    if client == "Unknown":
+                        unknown_rows.append(
+                            {
+                                "year": y,
+                                "source": "fixed",
+                                "date": r.get("date") or r.get("created") or "",
+                                "description": r.get("description") or "",
+                                "amount": amt,
+                            }
+                        )
 
             totals.append(round(hourly_total + fixed_total, 2))
     except Exception as exc:
@@ -1380,8 +1570,131 @@ def all_time_earning_graph(request):
             if float(r["total"]) > 0
         ]
     )
+    data["unknown_rows"] = sorted(
+        unknown_rows, key=lambda row: abs(row.get("amount") or 0), reverse=True
+    )
 
     return render(request, "upworkapi/all_time_earning.html", data)
+
+
+@login_required(login_url="/")
+def all_time_hourly_graph(request):
+    data = {"page_title": "All Time Hourly"}
+
+    token = request.session.get("token")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    current_year = datetime.now().year
+    start_year = 2010
+    years = list(range(start_year, current_year + 1))
+
+    totals = []
+    client_totals = defaultdict(float)
+    try:
+        for y in years:
+            yearly_report = _cached_timereport_year(request, token, str(y))
+            total_hours = float(yearly_report.get("total_hours") or 0)
+            for row in yearly_report.get("client_rows") or []:
+                client_totals[
+                    _normalize_client_name(row.get("name") or "Unknown")
+                ] += float(row.get("total") or 0)
+            totals.append(round(total_hours, 2))
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        totals = [0.0 for _ in years]
+
+    first_idx = 0
+    for i, total in enumerate(totals):
+        if total > 0:
+            first_idx = i
+            break
+
+    years = years[first_idx:] or years
+    totals = totals[first_idx:] or totals
+
+    x_axis = [str(y) for y in years]
+    total_earning = round(sum(totals), 2)
+
+    data["graph"] = {
+        "x_axis": x_axis,
+        "report": totals,
+        "total_hours": total_earning,
+        "title": "All Time Hourly : %s - %s (%s hrs)"
+        % (x_axis[0], x_axis[-1], total_earning),
+    }
+
+    total_sum = sum(client_totals.values()) if client_totals else 0.0
+    data["client_rows"] = [
+        {
+            "name": name,
+            "total": float(total),
+            "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
+        }
+        for name, total in sorted(
+            client_totals.items(), key=lambda x: x[1], reverse=True
+        )
+        if not _is_excluded_client_label({"description": name}, name)
+    ]
+    data["client_pie_data"] = json.dumps(
+        [
+            {"name": r["name"], "y": float(r["total"])}
+            for r in data["client_rows"]
+            if float(r["total"]) > 0
+        ]
+    )
+    return render(request, "upworkapi/all_time_hourly.html", data)
+
+
+@login_required(login_url="/")
+def all_time_hourly_year(request, year):
+    data = {"page_title": "All Time Hourly"}
+
+    if not re.match(r"^\d{4}$", str(year)):
+        messages.warning(request, "Wrong year format.!")
+        return redirect("all_time_hourly_graph")
+
+    token = request.session.get("token")
+    if not token:
+        messages.warning(request, "Missing token. Please login again.")
+        return redirect("auth")
+
+    try:
+        graph = _cached_timereport_year(request, token, str(year))
+        data["graph"] = graph
+
+        client_totals = defaultdict(float)
+        for row in graph.get("client_rows") or []:
+            client_totals[
+                _normalize_client_name(row.get("name") or "Unknown")
+            ] += float(row.get("total") or 0)
+
+        total_sum = sum(client_totals.values()) if client_totals else 0.0
+        data["client_rows"] = [
+            {
+                "name": name,
+                "total": float(total),
+                "percent": (float(total) / total_sum * 100.0) if total_sum else 0.0,
+            }
+            for name, total in sorted(
+                client_totals.items(), key=lambda x: x[1], reverse=True
+            )
+        ]
+        data["client_pie_data"] = json.dumps(
+            [
+                {"name": r["name"], "y": float(r["total"])}
+                for r in data["client_rows"]
+                if float(r["total"]) > 0
+            ]
+        )
+    except Exception as exc:
+        messages.warning(request, f"Upwork API error: {exc}")
+        data["graph"] = timereport_weekly(token, str(year))
+        data["client_rows"] = []
+        data["client_pie_data"] = json.dumps([])
+
+    return render(request, "upworkapi/all_time_hourly_year.html", data)
 
 
 @login_required(login_url="/")
@@ -1516,6 +1829,7 @@ def fixed_price_graph(request):
             token=token,
             freelancer_reference=freelancer_reference,
             tenant_id=tenant_id,
+            tenant_ids=request.session.get("tenant_ids"),
             start_date=start_dt,
             end_date=end_dt,
             debug=debug,
@@ -1564,6 +1878,7 @@ def fixed_price_graph(request):
         amt = float(r.get("amount") or 0.0)
         if amt == 0:
             continue
+        display_date = _display_date_str(occurred_at)
 
         client = r.get("client_name") or "Unknown"
         kind = r.get("kind") or ""
@@ -1572,6 +1887,7 @@ def fixed_price_graph(request):
         clean.append(
             {
                 "date": occurred_at,
+                "display_date": display_date or occurred_at,
                 "client": client,
                 "kind": kind,
                 "description": desc,
@@ -1668,6 +1984,7 @@ def fixed_price_month_detail(request, year, month):
             token=token,
             freelancer_reference=freelancer_reference,
             tenant_id=tenant_id,
+            tenant_ids=request.session.get("tenant_ids"),
             start_date=start_dt,
             end_date=end_dt,
         )
@@ -1709,6 +2026,7 @@ def fixed_price_month_detail(request, year, month):
         amt = float(r.get("amount") or 0.0)
         if amt == 0:
             continue
+        display_date = _display_date_str(occurred_at)
 
         client = r.get("client_name") or r.get("client") or "Unknown"
         kind = r.get("kind") or ""
@@ -1717,6 +2035,7 @@ def fixed_price_month_detail(request, year, month):
         clean.append(
             {
                 "date": occurred_at,
+                "display_date": display_date or occurred_at,
                 "client": client,
                 "kind": kind,
                 "description": desc,
@@ -1745,10 +2064,12 @@ def fixed_price_month_detail(request, year, month):
 
     detail_rows = []
     for item in clean:
+        client_name = _normalize_client_name(item.get("client") or "Unknown")
         detail_rows.append(
             {
-                "date": item["date"],
-                "description": f'{item["client"]} - {item["description"]}',
+                "date": item.get("display_date") or _display_date_str(item["date"]),
+                "client": client_name,
+                "description": f'{client_name} - {item["description"]}',
                 "amount": item["amount"],
             }
         )

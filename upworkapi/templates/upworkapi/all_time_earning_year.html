@@ -96,6 +96,14 @@
 {% endblock %}
 
 {% block js_extra %}
+<script>
+  (function () {
+    var baseUrl = "{% url 'all_time_earning_graph' %}";
+    try {
+      window.history.replaceState({}, document.title, baseUrl);
+    } catch (e) {}
+  })();
+</script>
 {% autoescape off %}
 <script>
   $(function () {
@@ -184,7 +192,16 @@ $(function () {
           y: 10,
           useHTML: true
         },
-      tooltip: { enabled: false },
+      tooltip: {
+        useHTML: true,
+        formatter: function () {
+          return (
+            '<b>' + this.point.name + '</b><br/>' +
+            '$' + Highcharts.numberFormat(this.point.y, 2) + ' (' +
+            Highcharts.numberFormat(this.percentage, 1) + '%)'
+          );
+        }
+      },
 
       plotOptions: {
         pie: {
