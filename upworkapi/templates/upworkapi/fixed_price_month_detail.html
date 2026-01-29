@@ -171,6 +171,14 @@
 
 {% block js_extra %}
 <script>
+  (function () {
+    var baseUrl = "{% url 'fixed_price_graph' %}";
+    try {
+      window.history.replaceState({}, document.title, baseUrl);
+    } catch (e) {}
+  })();
+</script>
+<script>
   $(function() {
     $('#year-picker').datetimepicker({
       viewMode: 'years',

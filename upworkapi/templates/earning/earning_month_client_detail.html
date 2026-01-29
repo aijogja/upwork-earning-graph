@@ -37,3 +37,14 @@
   </div>
 </div>
 {% endblock %}
+
+{% block js_extra %}
+<script>
+  (function () {
+    var baseUrl = "{% url 'earning_graph' %}";
+    try {
+      window.history.replaceState({}, document.title, baseUrl);
+    } catch (e) {}
+  })();
+</script>
+{% endblock %}
