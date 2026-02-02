@@ -3,6 +3,7 @@ services:
     image: ghcr.io/aijogja/upwork-earning-graph:latest
     container_name: 'upwork-earning-graph'
     restart: unless-stopped
+    platform: linux/amd64
     build: .
     command: sh -c "\
       sleep 5 && \
