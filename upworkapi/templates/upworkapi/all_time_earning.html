@@ -81,6 +81,44 @@
       </div>
     </div>
 
+    {% if unknown_rows %}
+    <div class="row mt-4">
+      <div class="col-lg-12">
+        <div class="card">
+          <div class="card-body">
+            <h3 class="mb-3">Unknown Client Breakdown</h3>
+            <div class="table-responsive">
+              <table class="table table-hover table-striped table-condensed">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Year</th>
+                    <th>Source</th>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="text-right">Amount (USD)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in unknown_rows %}
+                  <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ row.year }}</td>
+                    <td>{{ row.source }}</td>
+                    <td>{{ row.date|default:"-" }}</td>
+                    <td>{{ row.description|default:"-" }}</td>
+                    <td class="text-right">$ {{ row.amount|floatformat:2|intcomma }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
 {% endblock %}
 
 {% block js_extra %}
@@ -160,7 +198,16 @@ $(function () {
           y: 10,
           useHTML: true
         },
-      tooltip: { enabled: false },
+      tooltip: {
+        useHTML: true,
+        formatter: function () {
+          return (
+            '<b>' + this.point.name + '</b><br/>' +
+            '$' + Highcharts.numberFormat(this.point.y, 2) + ' (' +
+            Highcharts.numberFormat(this.percentage, 1) + '%)'
+          );
+        }
+      },
 
       plotOptions: {
         pie: {
