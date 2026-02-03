@@ -96,6 +96,14 @@
 {% endblock %}
 
 {% block js_extra %}
+<script>
+  (function () {
+    var baseUrl = "{% url 'all_time_earning_graph' %}";
+    try {
+      window.history.replaceState({}, document.title, baseUrl);
+    } catch (e) {}
+  })();
+</script>
 {% autoescape off %}
 <script>
   $(function () {
