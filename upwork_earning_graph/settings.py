@@ -150,6 +150,30 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL")
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 ADMINS = getaddresses([os.environ.get("DJANGO_ADMINS")])
 
+# AWS S3
+USE_AWS_S3 = env.bool("USE_AWS_S3", False)
+if USE_AWS_S3:
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_ACCESS_KEY_ID = env.str("AWS_ACCESS_KEY_ID", None)
+    AWS_SECRET_ACCESS_KEY = env.str("AWS_SECRET_ACCESS_KEY", None)
+    AWS_STORAGE_BUCKET_NAME = env.str("AWS_STORAGE_BUCKET_NAME")
+    AWS_STORAGE_DIRECTORY_NAME = env.str("AWS_STORAGE_DIRECTORY_NAME")
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "location": f"{AWS_STORAGE_DIRECTORY_NAME}/media",
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "location": f"{AWS_STORAGE_DIRECTORY_NAME}/static",
+            },
+        },
+    }
+
 # Upwork API
 UPWORK_PUBLIC_KEY = env("UPWORK_PUBLIC_KEY")
 UPWORK_SECRET_KEY = env("UPWORK_SECRET_KEY")
