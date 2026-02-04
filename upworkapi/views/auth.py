@@ -48,7 +48,7 @@ def callback(request):
         return HttpResponseBadRequest("OAuth state mismatch")
 
     client = upwork_client.get_client()
-    authz_code = request.build_absolute_uri()
+    authz_code = _build_authorization_response(request)
 
     data = None  # <-- kunci: selalu terdefinisi
 
@@ -255,6 +255,17 @@ def _extract_profile_key(profile_url):
         if last.startswith("~"):
             return last
     return None
+
+
+def _build_authorization_response(request):
+    # Prefer configured callback URL to avoid proxy-induced scheme/host mismatches.
+    base = settings.UPWORK_CALLBACK_URL or ""
+    query = request.META.get("QUERY_STRING", "")
+    if base and query:
+        return base.rstrip("?") + "?" + query
+    if base:
+        return base
+    return request.build_absolute_uri()
 
 
 def _extract_access_token(token_obj, client_obj):
