@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+import time
 from oauthlib.oauth2.rfc6749.errors import InvalidGrantError, MissingTokenError
 from upwork.routers import graphql
 from django.shortcuts import render, redirect
@@ -54,6 +55,13 @@ def callback(request):
 
     try:
         token = client.get_access_token(authz_code)
+        if isinstance(token, dict) and token.get("expires_in") and not token.get(
+            "expires_at"
+        ):
+            try:
+                token["expires_at"] = time.time() + int(token["expires_in"])
+            except (TypeError, ValueError):
+                pass
         request.session["token"] = token
 
         access_token = _extract_access_token(token, client)

@@ -60,6 +60,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "upworkapi.middleware.UpworkTokenRefreshMiddleware",
 ]
 
 ROOT_URLCONF = "upwork_earning_graph.urls"
