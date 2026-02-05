@@ -22,6 +22,7 @@ from upworkapi.utils import upwork_client
 
 
 CACHE_TTL_SECONDS = 900
+ALL_TIME_CACHE_SECONDS = 21600
 
 
 def _cache_key(prefix: str, *parts) -> str:
@@ -115,6 +116,92 @@ def _cached_fixed_price_transactions(
     )
     cache.set(key, rows, CACHE_TTL_SECONDS)
     return rows
+
+
+def _cached_all_time_year_summary(
+    request,
+    *,
+    token,
+    tenant_id,
+    tenant_ids,
+    freelancer_reference,
+    year,
+):
+    key = _cache_key(
+        "all_time_year",
+        request.user.id,
+        tenant_id or "",
+        freelancer_reference,
+        year,
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    hourly_graph = _cached_earning_graph_annually(request, token, str(year))
+    hourly_total = float(hourly_graph.get("total_earning") or 0)
+    hourly_details = hourly_graph.get("detail_earning") or []
+
+    year_client_totals = defaultdict(float)
+    _accumulate_client_totals(year_client_totals, hourly_details)
+
+    unknown_rows = []
+    for d in hourly_details:
+        client = _client_from_detail(d)
+        if client != "Unknown" or _is_excluded_client_label(d, client):
+            continue
+        amt = _amount_from_detail(d)
+        if not amt:
+            continue
+        unknown_rows.append(
+            {
+                "year": year,
+                "source": "hourly",
+                "date": d.get("date") or "",
+                "description": d.get("description") or "",
+                "amount": amt,
+            }
+        )
+
+    start_dt = date(year, 1, 1)
+    end_dt = date(year, 12, 31)
+    fixed_rows = _cached_fixed_price_transactions(
+        request,
+        token=token,
+        freelancer_reference=freelancer_reference,
+        tenant_id=tenant_id,
+        tenant_ids=tenant_ids,
+        start_date=start_dt,
+        end_date=end_dt,
+    )
+    fixed_total = 0.0
+    for r in fixed_rows:
+        amt = float(r.get("amount") or 0.0)
+        if amt:
+            fixed_total += amt
+            client = _client_from_fixed(r)
+            if _is_excluded_client_label(r, client):
+                continue
+            year_client_totals[client] += amt
+            if client == "Unknown":
+                unknown_rows.append(
+                    {
+                        "year": year,
+                        "source": "fixed",
+                        "date": r.get("date") or r.get("created") or "",
+                        "description": r.get("description") or "",
+                        "amount": amt,
+                    }
+                )
+
+    summary = {
+        "hourly_total": round(hourly_total, 2),
+        "fixed_total": round(fixed_total, 2),
+        "client_totals": dict(year_client_totals),
+        "unknown_rows": unknown_rows,
+    }
+    cache.set(key, summary, ALL_TIME_CACHE_SECONDS)
+    return summary
 
 
 def _cached_hourly_service_fees(
@@ -1443,6 +1530,11 @@ def all_time_earning_graph(request):
         messages.warning(request, "Missing token. Please login again.")
         return redirect("auth")
 
+    cache_key = _cache_key("all_time_earning", request.user.id, tenant_id or "")
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return render(request, "upworkapi/all_time_earning.html", cached)
+
     current_year = datetime.now().year
     start_year = 2010
     years = list(range(start_year, current_year + 1))
@@ -1460,59 +1552,25 @@ def all_time_earning_graph(request):
         )
 
         for y in years:
-            hourly_graph = _cached_earning_graph_annually(request, token, str(y))
-            hourly_total = float(hourly_graph.get("total_earning") or 0)
-            hourly_details = hourly_graph.get("detail_earning") or []
-            _accumulate_client_totals(client_totals, hourly_details)
-            for d in hourly_details:
-                client = _client_from_detail(d)
-                if client != "Unknown" or _is_excluded_client_label(d, client):
-                    continue
-                amt = _amount_from_detail(d)
-                if not amt:
-                    continue
-                unknown_rows.append(
-                    {
-                        "year": y,
-                        "source": "hourly",
-                        "date": d.get("date") or "",
-                        "description": d.get("description") or "",
-                        "amount": amt,
-                    }
-                )
-
-            start_dt = date(y, 1, 1)
-            end_dt = date(y, 12, 31)
-            fixed_rows = _cached_fixed_price_transactions(
+            summary = _cached_all_time_year_summary(
                 request,
                 token=token,
                 freelancer_reference=freelancer_reference,
                 tenant_id=tenant_id,
                 tenant_ids=request.session.get("tenant_ids"),
-                start_date=start_dt,
-                end_date=end_dt,
+                year=y,
             )
-            fixed_total = 0.0
-            for r in fixed_rows:
-                amt = float(r.get("amount") or 0.0)
-                if amt:
-                    fixed_total += amt
-                    client = _client_from_fixed(r)
-                    if _is_excluded_client_label(r, client):
-                        continue
-                    client_totals[client] += amt
-                    if client == "Unknown":
-                        unknown_rows.append(
-                            {
-                                "year": y,
-                                "source": "fixed",
-                                "date": r.get("date") or r.get("created") or "",
-                                "description": r.get("description") or "",
-                                "amount": amt,
-                            }
-                        )
-
-            totals.append(round(hourly_total + fixed_total, 2))
+            year_totals = summary.get("client_totals") or {}
+            for name, total in year_totals.items():
+                client_totals[name] += float(total or 0)
+            unknown_rows.extend(summary.get("unknown_rows") or [])
+            totals.append(
+                round(
+                    float(summary.get("hourly_total") or 0)
+                    + float(summary.get("fixed_total") or 0),
+                    2,
+                )
+            )
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         totals = [0.0 for _ in years]
@@ -1574,6 +1632,7 @@ def all_time_earning_graph(request):
         unknown_rows, key=lambda row: abs(row.get("amount") or 0), reverse=True
     )
 
+    cache.set(cache_key, data, ALL_TIME_CACHE_SECONDS)
     return render(request, "upworkapi/all_time_earning.html", data)
 
 
