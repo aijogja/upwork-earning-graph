@@ -1,6 +1,7 @@
 from calendar import month_name, monthrange
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+import time
 import calendar
 import json
 import re
@@ -23,6 +24,8 @@ from upworkapi.utils import upwork_client
 
 CACHE_TTL_SECONDS = 900
 ALL_TIME_CACHE_SECONDS = 21600
+ALL_TIME_BUILD_SECONDS = 8
+ALL_TIME_MAX_YEARS_PER_REQUEST = 3
 
 
 def _cache_key(prefix: str, *parts) -> str:
@@ -1542,6 +1545,7 @@ def all_time_earning_graph(request):
     totals = []
     client_totals = defaultdict(float)
     unknown_rows = []
+    missing_years = []
     try:
         freelancer_reference = (
             request.session.get("freelancer_reference")
@@ -1551,15 +1555,38 @@ def all_time_earning_graph(request):
             or request.user.username
         )
 
+        start_ts = time.monotonic()
+        computed_count = 0
+        available_years = []
+
         for y in years:
-            summary = _cached_all_time_year_summary(
-                request,
-                token=token,
-                freelancer_reference=freelancer_reference,
-                tenant_id=tenant_id,
-                tenant_ids=request.session.get("tenant_ids"),
-                year=y,
+            summary_key = _cache_key(
+                "all_time_year",
+                request.user.id,
+                tenant_id or "",
+                freelancer_reference,
+                y,
             )
+            summary = cache.get(summary_key)
+
+            if summary is None:
+                within_budget = (time.monotonic() - start_ts) < ALL_TIME_BUILD_SECONDS
+                can_compute = computed_count < ALL_TIME_MAX_YEARS_PER_REQUEST
+                if within_budget and can_compute:
+                    summary = _cached_all_time_year_summary(
+                        request,
+                        token=token,
+                        freelancer_reference=freelancer_reference,
+                        tenant_id=tenant_id,
+                        tenant_ids=request.session.get("tenant_ids"),
+                        year=y,
+                    )
+                    computed_count += 1
+
+            if summary is None:
+                missing_years.append(y)
+                continue
+
             year_totals = summary.get("client_totals") or {}
             for name, total in year_totals.items():
                 client_totals[name] += float(total or 0)
@@ -1571,8 +1598,19 @@ def all_time_earning_graph(request):
                     2,
                 )
             )
+            available_years.append(y)
+
+        years = available_years or years
+        if missing_years:
+            messages.info(
+                request,
+                "All-time data is warming up. Refresh in a few minutes for full history.",
+            )
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
+        totals = [0.0 for _ in years]
+
+    if not totals and years:
         totals = [0.0 for _ in years]
 
     first_idx = 0
@@ -1595,17 +1633,18 @@ def all_time_earning_graph(request):
         "title": "All Time : %s - %s ($ %s)" % (x_axis[0], x_axis[-1], total_earning),
     }
     try:
-        start_dt = date(start_year, 1, 1)
-        end_dt = date(current_year, 12, 31)
-        _, fee_total, fee_debug = _service_fee_summary(
-            request,
-            start_date=start_dt,
-            end_date=end_dt,
-            include_rows=False,
-            debug=True,
-        )
-        data["service_fee_total"] = fee_total
-        data["service_fee_debug"] = fee_debug
+        if not missing_years:
+            start_dt = date(start_year, 1, 1)
+            end_dt = date(current_year, 12, 31)
+            _, fee_total, fee_debug = _service_fee_summary(
+                request,
+                start_date=start_dt,
+                end_date=end_dt,
+                include_rows=False,
+                debug=True,
+            )
+            data["service_fee_total"] = fee_total
+            data["service_fee_debug"] = fee_debug
     except Exception:
         pass
 
