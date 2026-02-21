@@ -58,7 +58,7 @@
               <tr>
                 <th>#</th>
                 <th>Client</th>
-                <th class="text-right">Total (USD)</th>
+                <th class="text-right text-nowrap">Total (USD)</th>
                 <th class="text-right">Percent</th>
               </tr>
             </thead>
@@ -67,7 +67,7 @@
               <tr>
                 <td>{{ forloop.counter }}</td>
                 <td>{{ row.name }}</td>
-                <td class="text-right">$ {{ row.total|floatformat:2|intcomma }}</td>
+                <td class="text-right text-nowrap">$ {{ row.total|floatformat:2|intcomma }}</td>
                 <td class="text-right">{{ row.percent|floatformat:2 }}%</td>
               </tr>
               {% empty %}
@@ -155,6 +155,8 @@
               click: function () {
                 var baseUrl = '{% url "all_time_earning_graph" %}';
                 baseUrl = baseUrl.replace(/\/$/, '');
+                var overlay = document.getElementById('loading-overlay');
+                if (overlay) overlay.classList.remove('loading-hidden');
                 window.location.href = baseUrl + '/' + this.category;
               }
             }
@@ -211,8 +213,8 @@ $(function () {
 
       plotOptions: {
         pie: {
-          startAngle: -130,
-          endAngle: 230,
+          startAngle: -150,
+          endAngle: 210,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -249,8 +251,8 @@ $(function () {
             },
             plotOptions: {
               pie: {
-                startAngle: -130,
-                endAngle: 230,
+                startAngle: -150,
+                endAngle: 210,
                 size: '88%',
                 dataLabels: {
                   enabled: true,

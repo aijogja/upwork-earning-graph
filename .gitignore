@@ -7,3 +7,4 @@ local_settings.py
 .env
 docker.env
 venv/
+.venv/

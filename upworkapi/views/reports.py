@@ -24,8 +24,6 @@ from upworkapi.utils import upwork_client
 
 CACHE_TTL_SECONDS = 900
 ALL_TIME_CACHE_SECONDS = 21600
-ALL_TIME_BUILD_SECONDS = 8
-ALL_TIME_MAX_YEARS_PER_REQUEST = 3
 
 
 def _cache_key(prefix: str, *parts) -> str:
@@ -1555,8 +1553,6 @@ def all_time_earning_graph(request):
             or request.user.username
         )
 
-        start_ts = time.monotonic()
-        computed_count = 0
         available_years = []
 
         for y in years:
@@ -1570,18 +1566,14 @@ def all_time_earning_graph(request):
             summary = cache.get(summary_key)
 
             if summary is None:
-                within_budget = (time.monotonic() - start_ts) < ALL_TIME_BUILD_SECONDS
-                can_compute = computed_count < ALL_TIME_MAX_YEARS_PER_REQUEST
-                if within_budget and can_compute:
-                    summary = _cached_all_time_year_summary(
-                        request,
-                        token=token,
-                        freelancer_reference=freelancer_reference,
-                        tenant_id=tenant_id,
-                        tenant_ids=request.session.get("tenant_ids"),
-                        year=y,
-                    )
-                    computed_count += 1
+                summary = _cached_all_time_year_summary(
+                    request,
+                    token=token,
+                    freelancer_reference=freelancer_reference,
+                    tenant_id=tenant_id,
+                    tenant_ids=request.session.get("tenant_ids"),
+                    year=y,
+                )
 
             if summary is None:
                 missing_years.append(y)

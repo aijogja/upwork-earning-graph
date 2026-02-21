@@ -401,8 +401,8 @@ $(function () {
       },
       plotOptions: {
         pie: {
-          startAngle: -140,
-          endAngle: 220,
+          startAngle: -160,
+          endAngle: 200,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -411,6 +411,30 @@ $(function () {
             format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
           }
         }
+      },
+      responsive: {
+        rules: [{
+          condition: { maxWidth: 576 },
+          chartOptions: {
+            chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+            plotOptions: {
+              pie: {
+                size: '85%',
+                dataLabels: {
+                  enabled: true,
+                  distance: 12,
+                  style: { fontSize: '10px', textOverflow: 'none', lineHeight: '12px' },
+                  formatter: function () {
+                    var name = (this.point.name || '').trim();
+                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+                    return '<b>' + name + '</b><br/>' + pct;
+                  }
+                }
+              }
+            }
+          }
+        }]
       },
       series: [{ name: 'Earning', data: pieData }],
       exporting: { enabled: false }
@@ -461,8 +485,8 @@ $(function () {
       },
       plotOptions: {
         pie: {
-          startAngle: -140,
-          endAngle: 220,
+          startAngle: -160,
+          endAngle: 200,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -471,6 +495,30 @@ $(function () {
             format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
           }
         }
+      },
+      responsive: {
+        rules: [{
+          condition: { maxWidth: 576 },
+          chartOptions: {
+            chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+            plotOptions: {
+              pie: {
+                size: '85%',
+                dataLabels: {
+                  enabled: true,
+                  distance: 12,
+                  style: { fontSize: '10px', textOverflow: 'none', lineHeight: '12px' },
+                  formatter: function () {
+                    var name = (this.point.name || '').trim();
+                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+                    return '<b>' + name + '</b><br/>' + pct;
+                  }
+                }
+              }
+            }
+          }
+        }]
       },
       series: [{ name: 'Earning', data: pieData }],
       exporting: { enabled: false }

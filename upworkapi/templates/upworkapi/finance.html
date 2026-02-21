@@ -287,7 +287,7 @@ $(function () {
 
       var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-    Highcharts.chart('client_pie', {
+    var monthlyPie = Highcharts.chart('client_pie', {
       chart: { type: 'pie' },
       title: { text: null },
       subtitle: {
@@ -313,8 +313,8 @@ $(function () {
 
       plotOptions: {
         pie: {
-          startAngle: -140,
-          endAngle: 220,
+          startAngle: -160,
+          endAngle: 200,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -348,8 +348,8 @@ $(function () {
             chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
             plotOptions: {
               pie: {
-                startAngle: -140,
-                endAngle: 220,
+                startAngle: -160,
+                endAngle: 200,
                 size: '85%',
                 dataLabels: {
                   enabled: true,
@@ -410,7 +410,7 @@ $(function () {
 
       var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-      Highcharts.chart('client_pie_yearly', {
+    var yearlyPie = Highcharts.chart('client_pie_yearly', {
         chart: { type: 'pie' },
         title: { text: null },
         subtitle: {
@@ -433,8 +433,8 @@ $(function () {
 
       plotOptions: {
         pie: {
-          startAngle: -140,
-          endAngle: 220,
+          startAngle: -160,
+          endAngle: 200,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -471,8 +471,8 @@ $(function () {
             },
             plotOptions: {
               pie: {
-                startAngle: -140,
-                endAngle: 220,
+                startAngle: -160,
+                endAngle: 200,
                 size: '88%',
                 dataLabels: {
                   enabled: true,
