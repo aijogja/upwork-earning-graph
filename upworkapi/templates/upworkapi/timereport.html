@@ -5,6 +5,17 @@
 {% block description %}Input the year, and shown the timereport data that presented in graph.{% endblock %}
 
 {% block body %}
+<style>
+  #timereport_client_pie{
+    width: 100%;
+    min-height: 520px;
+  }
+  @media (max-width: 576px){
+    #timereport_client_pie{
+      min-height: 420px;
+    }
+  }
+</style>
 <div class="row">
   <div class="col-lg-12">
     <h3>Time Report {{ graph.year }}</h3>
@@ -151,7 +162,7 @@
 
       var totalHours = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
-      Highcharts.chart('timereport_client_pie', {
+      var timeReportPie = Highcharts.chart('timereport_client_pie', {
         chart: { type: 'pie' },
         title: { text: null },
         subtitle: {
@@ -173,20 +184,59 @@
         },
         plotOptions: {
           pie: {
-            startAngle: -140,
-            endAngle: 220,
+            startAngle: -160,
+            endAngle: 200,
             innerSize: '55%',
             size: '85%',
             dataLabels: {
               enabled: true,
               distance: 18,
-              format: '<b>{point.name}</b><br/>{point.y:.1f} hrs ({point.percentage:.1f}%)'
+              formatter: function () {
+                return (
+                  '<b>' + this.point.name + '</b><br/>' +
+                  Highcharts.numberFormat(this.point.y, 1) + ' hrs (' +
+                  Highcharts.numberFormat(this.percentage, 1) + '%)'
+                );
+              }
             }
           }
+        },
+        responsive: {
+          rules: [{
+            condition: { maxWidth: 576 },
+            chartOptions: {
+              chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+              plotOptions: {
+                pie: {
+                  size: '85%',
+                  dataLabels: {
+                    enabled: true,
+                    distance: 12,
+                    crop: false,
+                    overflow: 'allow',
+                    allowOverlap: true,
+                    style: { fontSize: '9px', lineHeight: '12px', textOverflow: 'none' },
+                    formatter: function () {
+                      var name = (this.point.name || '').trim();
+                      var safeName = name.replace(/\s+/g, '\u00A0');
+                      var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+                      if (name.length > 18) {
+                        return '<b>' + safeName + '</b><br/>' + pct;
+                      }
+                      return '<b>' + safeName + '</b> ' + pct;
+                    }
+                  }
+                }
+              }
+            }
+          }]
         },
         series: [{ name: 'Hours', data: pieData }],
         exporting: { enabled: false }
       });
+      setTimeout(function () { timeReportPie.reflow(); }, 0);
+      window.addEventListener('resize', function () { timeReportPie.reflow(); });
+      window.addEventListener('orientationchange', function () { timeReportPie.reflow(); });
     } catch (e) {}
   });
 </script>
