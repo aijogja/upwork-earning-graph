@@ -1207,7 +1207,7 @@ def total_earning_graph_trx(request):
         request.GET.get("year") or request.POST.get("year") or str(datetime.now().year)
     )
     month = request.POST.get("month")
-    net_view = request.GET.get("net") == "1"
+    net_view = request.GET.get("net") == "1" or request.POST.get("net") == "1"
 
     if not re.match(r"^\d{4}$", str(year)):
         messages.warning(request, "Wrong year format.!")

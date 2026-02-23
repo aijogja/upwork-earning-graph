@@ -285,7 +285,27 @@ $(function () {
       return;
     }
 
-      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+    var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+    var isMobileLabel = function () {
+      return (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) ||
+        window.innerWidth <= 768;
+    };
+    var formatMonthlyLabel = function () {
+        var name = (this.point.name || '').trim();
+        var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+        if (isMobileLabel()) {
+          name = name.replace(/\s+/g, '\u00A0');
+          if (name.length > 20) name = name.slice(0, 20) + '…';
+          return '<b>' + name + '</b><br/>' + pct;
+        }
+        return (
+          '<b>' + this.point.name + '</b><br/>' +
+          '$' + Highcharts.numberFormat(this.point.y, 2) +
+          ' <span style="color:#666">(' +
+          Highcharts.numberFormat(this.percentage, 1) +
+          '%)</span>'
+        );
+    };
 
     var monthlyPie = Highcharts.chart('client_pie', {
       chart: { type: 'pie' },
@@ -313,8 +333,8 @@ $(function () {
 
       plotOptions: {
         pie: {
-          startAngle: -160,
-          endAngle: 200,
+          startAngle: 90,
+          endAngle: 450,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -322,20 +342,12 @@ $(function () {
             useHTML: false,
             distance: 18,
             crop: false,
-            overflow: 'none',
+            overflow: 'justify',
             style: {
               fontSize: '11px',
               textOutline: 'none'
             },
-            formatter: function () {
-              return (
-                '<b>' + this.point.name + '</b><br/>' +
-                '$' + Highcharts.numberFormat(this.point.y, 2) +
-                ' <span style="color:#666">(' +
-                Highcharts.numberFormat(this.percentage, 1) +
-                '%)</span>'
-              );
-            }
+            formatter: formatMonthlyLabel
           }
         }
       },
@@ -343,25 +355,22 @@ $(function () {
       // Mobile pie chart style monthly
       responsive: {
         rules: [{
-          condition: { maxWidth: 576 },
+          condition: { maxWidth: 768 },
           chartOptions: {
-            chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+            chart: { height: 420, spacingLeft: 100, spacingRight: 100 },
             plotOptions: {
               pie: {
-                startAngle: -160,
-                endAngle: 200,
-                size: '85%',
+                startAngle: 90,
+                endAngle: 450,
+                size: '89%',
                 dataLabels: {
                   enabled: true,
-                  distance: 12,
+                  distance: 15,
+                  crop: false,
+                  overflow: 'none',
                   useHTML: false,
-                  style: { fontSize: '10px', textOverflow: 'none', lineHeight: '12px' },
-                  formatter: function () {
-                    var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
-                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                    return '<b>' + name + '</b><br/>' + pct;
-                  }
+                  style: { fontSize: '9px', textOverflow: 'none', lineHeight: '12px' },
+                  formatter: formatMonthlyLabel
                 }
               }
             }
@@ -408,7 +417,27 @@ $(function () {
       return;
     }
 
-      var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+    var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
+    var isMobileLabel = function () {
+      return (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) ||
+        window.innerWidth <= 768;
+    };
+    var formatYearlyLabel = function () {
+      var name = (this.point.name || '').trim();
+      var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+      if (isMobileLabel()) {
+        name = name.replace(/\s+/g, '\u00A0');
+        if (name.length > 20) name = name.slice(0, 20) + '…';
+        return '<b>' + name + '</b><br/>' + pct;
+      }
+      return (
+        '<b>' + this.point.name + '</b><br/>' +
+        '$' + Highcharts.numberFormat(this.point.y, 2) +
+        ' <span style="color:#666">(' +
+        Highcharts.numberFormat(this.percentage, 1) +
+        '%)</span>'
+      );
+    };
 
     var yearlyPie = Highcharts.chart('client_pie_yearly', {
         chart: { type: 'pie' },
@@ -433,8 +462,8 @@ $(function () {
 
       plotOptions: {
         pie: {
-          startAngle: -160,
-          endAngle: 200,
+          startAngle: 90,
+          endAngle: 450,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -444,53 +473,40 @@ $(function () {
             crop: false,
             overflow: 'justify',
             style: {
-              fontSize: '10px',
+              fontSize: '11px',
               textOutline: 'none'
             },
-            formatter: function () {
-              return (
-                '<b>' + this.point.name + '</b><br/>' +
-                '$' + Highcharts.numberFormat(this.point.y, 2) +
-                ' <span style="color:#666">(' +
-                Highcharts.numberFormat(this.percentage, 1) +
-                '%)</span>'
-              );
-            }
+            formatter: formatYearlyLabel
           }
         }
       },
 
       responsive: {
         rules: [{
-          condition: { maxWidth: 576 },
+          condition: { maxWidth: 768 },
           chartOptions: {
             chart: {
               height: 420,
-              spacingLeft: 40,
-              spacingRight: 40
+              spacingLeft: 60,
+              spacingRight: 60
             },
             plotOptions: {
               pie: {
-                startAngle: -160,
-                endAngle: 200,
-                size: '88%',
+                startAngle: 90,
+                endAngle: 450,
+                size: '89%',
                 dataLabels: {
                   enabled: true,
                   useHTML: false,
-                  distance: 12,
+                  distance: 15,
                   crop: false,
                   overflow: 'none',
                   style: {
-                    fontSize: '8px',
+                    fontSize: '9px',
                     textOverflow: 'none',
                     lineHeight: '12px'
                   },
-                  formatter: function () {
-                    var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
-                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                    return '<b>' + name + '</b><br/>' + pct;
-                  }
+                  formatter: formatYearlyLabel
                 }
               }
             }

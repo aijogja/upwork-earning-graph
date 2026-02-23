@@ -316,6 +316,7 @@
               formatter: function () {
                 if (isMobile) {
                   var mobileName = (this.point.name || '').trim();
+                  mobileName = mobileName.replace(/\s+/g, '\u00A0');
                   var mobilePct = Highcharts.numberFormat(this.percentage, 1) + '%';
                   return '<span class="pie-label-name"><b>' + mobileName + '</b></span><br/>' + mobilePct;
                 }
@@ -332,18 +333,21 @@
           rules: [{
             condition: { maxWidth: 576 },
             chartOptions: {
-              chart: { height: 420, spacingLeft: 5, spacingRight: 5 },
+              chart: { height: 420, spacingLeft: 60, spacingRight: 60 },
               plotOptions: {
                 pie: {
-                  size: '85%',
+                  size: '86%',
                   dataLabels: {
                     enabled: true,
                     distance: 12,
+                    crop: false,
+                    overflow: 'none',
                     useHTML: false,
-                    style: { fontSize: '9px', textOverflow: 'none', lineHeight: '11px' },
+                    style: { fontSize: '8px', textOverflow: 'none', lineHeight: '11px' },
                     formatter: function () {
                       var name = (this.point.name || '').trim();
-                      if (name.length > 25) name = name.slice(0, 25) + '…';
+                      name = name.replace(/\s+/g, '\u00A0');
+                      if (name.length > 20) name = name.slice(0, 20) + '…';
                       var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
                       return '<b>' + name + '</b><br/>' + pct;
                     }
