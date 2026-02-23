@@ -53,6 +53,32 @@
     #client_pie, #client_pie_yearly{
       min-height: 420px;
     }
+    .earning-detail-weekly{
+      table-layout: auto;
+    }
+    .earning-detail-weekly .col-num{
+      width: 36px;
+    }
+    .earning-detail-weekly .col-week{
+      width: 50px;
+    }
+    .earning-detail-weekly .col-date{
+      width: 90px;
+    }
+    .earning-detail-weekly .col-amount{
+      width: 90px;
+    }
+    .earning-detail-weekly .col-client{
+      width: 30%;
+    }
+    .earning-detail-weekly .col-description{
+      width: 40%;
+    }
+    .earning-detail-weekly th.col-client,
+    .earning-detail-weekly th.col-description{
+      word-break: normal;
+      overflow-wrap: normal;
+    }
   }
 </style>
 
@@ -64,9 +90,9 @@
         <h3 class="mb-0">Total Earning {{ graph.month }} {{ graph.year }}</h3>
         <div>
           {% if net_view %}
-            <a class="btn btn-outline-secondary" href="?year={{ graph.year }}">Gross View</a>
+            <a class="btn btn-outline-secondary text-nowrap" href="?year={{ graph.year }}">Gross View</a>
           {% else %}
-            <a class="btn btn-outline-secondary" href="?year={{ graph.year }}&net=1">Net View</a>
+            <a class="btn btn-outline-secondary text-nowrap" href="?year={{ graph.year }}&net=1">Net View</a>
           {% endif %}
         </div>
       </div>
@@ -89,6 +115,9 @@
           <div class="input-group-text"><i class="fa fa-calendar"></i></div>
         </div>
       </div>
+      {% if net_view %}
+      <input type="hidden" name="net" value="1" />
+      {% endif %}
 
       {% if graph.month %}
       <div class="ml-auto">
@@ -379,6 +408,23 @@ $(function () {
 
     var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
+    var isMobileLabel = function () {
+      return (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) ||
+        window.innerWidth <= 768;
+    };
+    var formatPieLabel = function () {
+      var name = (this.point.name || '').trim();
+      name = name.replace(/\s+/g, '\u00A0');
+      var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+      if (isMobileLabel()) {
+        if (name.length > 20) name = name.slice(0, 20) + '…';
+        return '<b>' + name + '</b><br/>' + pct;
+      }
+      return '<b>' + name + '</b><br/>$' +
+        Highcharts.numberFormat(this.point.y, 2) +
+        ' (' + pct + ')';
+    };
+
     Highcharts.chart('client_pie', {
       chart: { type: 'pie' },
       title: { text: null },
@@ -401,14 +447,14 @@ $(function () {
       },
       plotOptions: {
         pie: {
-          startAngle: -160,
-          endAngle: 200,
+          startAngle: 90,
+          endAngle: 450,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
             enabled: true,
             distance: 20,
-            format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
+            formatter: formatPieLabel
           }
         }
       },
@@ -416,20 +462,17 @@ $(function () {
         rules: [{
           condition: { maxWidth: 576 },
           chartOptions: {
-            chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+            chart: { height: 420, spacingLeft: 60, spacingRight: 60 },
             plotOptions: {
               pie: {
-                size: '85%',
+                size: '86%',
                 dataLabels: {
                   enabled: true,
                   distance: 12,
-                  style: { fontSize: '10px', textOverflow: 'none', lineHeight: '12px' },
-                  formatter: function () {
-                    var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
-                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                    return '<b>' + name + '</b><br/>' + pct;
-                  }
+                  crop: false,
+                  overflow: 'none',
+                  style: { fontSize: '8px', textOverflow: 'none', lineHeight: '12px' },
+                  formatter: formatPieLabel
                 }
               }
             }
@@ -463,6 +506,23 @@ $(function () {
 
     var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
+    var isMobileLabel = function () {
+      return (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) ||
+        window.innerWidth <= 768;
+    };
+    var formatPieLabel = function () {
+      var name = (this.point.name || '').trim();
+      name = name.replace(/\s+/g, '\u00A0');
+      var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+      if (isMobileLabel()) {
+        if (name.length > 20) name = name.slice(0, 20) + '…';
+        return '<b>' + name + '</b><br/>' + pct;
+      }
+      return '<b>' + name + '</b><br/>$' +
+        Highcharts.numberFormat(this.point.y, 2) +
+        ' (' + pct + ')';
+    };
+
     Highcharts.chart('client_pie_yearly', {
       chart: { type: 'pie' },
       title: { text: null },
@@ -485,14 +545,14 @@ $(function () {
       },
       plotOptions: {
         pie: {
-          startAngle: -160,
-          endAngle: 200,
+          startAngle: 90,
+          endAngle: 450,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
             enabled: true,
             distance: 20,
-            format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
+            formatter: formatPieLabel
           }
         }
       },
@@ -500,20 +560,17 @@ $(function () {
         rules: [{
           condition: { maxWidth: 576 },
           chartOptions: {
-            chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+            chart: { height: 420, spacingLeft: 60, spacingRight: 60 },
             plotOptions: {
               pie: {
-                size: '85%',
+                size: '86%',
                 dataLabels: {
                   enabled: true,
                   distance: 12,
-                  style: { fontSize: '10px', textOverflow: 'none', lineHeight: '12px' },
-                  formatter: function () {
-                    var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
-                    var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                    return '<b>' + name + '</b><br/>' + pct;
-                  }
+                  crop: false,
+                  overflow: 'none',
+                  style: { fontSize: '8px', textOverflow: 'none', lineHeight: '12px' },
+                  formatter: formatPieLabel
                 }
               }
             }

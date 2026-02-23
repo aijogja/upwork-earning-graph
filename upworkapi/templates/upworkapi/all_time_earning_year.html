@@ -240,14 +240,14 @@ $(function () {
           chartOptions: {
             chart: {
               height: 420,
-              spacingLeft: 40,
-              spacingRight: 40
+              spacingLeft: 60,
+              spacingRight: 60
             },
             plotOptions: {
               pie: {
                 startAngle: -150,
                 endAngle: 210,
-                size: '88%',
+                size: '86%',
                 dataLabels: {
                   enabled: true,
                   useHTML: false,
@@ -261,7 +261,8 @@ $(function () {
                   },
                   formatter: function () {
                     var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    name = name.replace(/\s+/g, '\u00A0');
+                    if (name.length > 20) name = name.slice(0, 20) + '…';
                     var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
                     return '<b>' + name + '</b><br/>' + pct;
                   }

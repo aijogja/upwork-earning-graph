@@ -184,8 +184,8 @@
         },
         plotOptions: {
           pie: {
-            startAngle: -160,
-            endAngle: 200,
+            startAngle: -150,
+            endAngle: 210,
             innerSize: '55%',
             size: '85%',
             dataLabels: {
@@ -205,25 +205,25 @@
           rules: [{
             condition: { maxWidth: 576 },
             chartOptions: {
-              chart: { height: 420, spacingLeft: 40, spacingRight: 40 },
+              chart: { height: 420, spacingLeft: 60, spacingRight: 60 },
               plotOptions: {
                 pie: {
-                  size: '85%',
+                  size: '86%',
                   dataLabels: {
                     enabled: true,
                     distance: 12,
                     crop: false,
-                    overflow: 'allow',
-                    allowOverlap: true,
-                    style: { fontSize: '9px', lineHeight: '12px', textOverflow: 'none' },
+                    overflow: 'none',
+                    style: { fontSize: '8px', lineHeight: '12px', textOverflow: 'none' },
                     formatter: function () {
                       var name = (this.point.name || '').trim();
-                      var safeName = name.replace(/\s+/g, '\u00A0');
+                      name = name.replace(/\s+/g, '\u00A0');
                       var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
-                      if (name.length > 18) {
-                        return '<b>' + safeName + '</b><br/>' + pct;
+                      if (name.length > 20) {
+                        name = name.slice(0, 20) + '…';
+                        return '<b>' + name + '</b><br/>' + pct;
                       }
-                      return '<b>' + safeName + '</b> ' + pct;
+                      return '<b>' + name + '</b> ' + pct;
                     }
                   }
                 }
