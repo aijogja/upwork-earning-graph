@@ -70,7 +70,7 @@
               <tr>
                 <th>#</th>
                 <th>Client</th>
-                <th class="text-right">Total (USD)</th>
+                <th class="text-right text-nowrap">Total (USD)</th>
                 <th class="text-right">Percent</th>
               </tr>
             </thead>
@@ -79,7 +79,7 @@
               <tr>
                 <td>{{ forloop.counter }}</td>
                 <td>{{ row.name }}</td>
-                <td class="text-right">$ {{ row.total|floatformat:2|intcomma }}</td>
+                <td class="text-right text-nowrap">$ {{ row.total|floatformat:2|intcomma }}</td>
                 <td class="text-right">{{ row.percent|floatformat:2 }}%</td>
               </tr>
               {% empty %}
@@ -147,6 +147,8 @@
                 if (this.options.month) {
                   var baseUrl = '{% url "all_time_earning_graph" %}';
                   baseUrl = baseUrl.replace(/\/$/, '');
+                  var overlay = document.getElementById('loading-overlay');
+                  if (overlay) overlay.classList.remove('loading-hidden');
                   window.location.href = baseUrl + '/' + {{ graph.year }} + '/' + this.options.month;
                 }
               }
@@ -205,8 +207,8 @@ $(function () {
 
       plotOptions: {
         pie: {
-          startAngle: -130,
-          endAngle: 230,
+          startAngle: -150,
+          endAngle: 210,
           innerSize: '55%',
           size: '85%',
           dataLabels: {
@@ -238,14 +240,14 @@ $(function () {
           chartOptions: {
             chart: {
               height: 420,
-              spacingLeft: 40,
-              spacingRight: 40
+              spacingLeft: 60,
+              spacingRight: 60
             },
             plotOptions: {
               pie: {
-                startAngle: -130,
-                endAngle: 230,
-                size: '88%',
+                startAngle: -150,
+                endAngle: 210,
+                size: '86%',
                 dataLabels: {
                   enabled: true,
                   useHTML: false,
@@ -259,7 +261,8 @@ $(function () {
                   },
                   formatter: function () {
                     var name = (this.point.name || '').trim();
-                    if (name.length > 25) name = name.slice(0, 25) + '…';
+                    name = name.replace(/\s+/g, '\u00A0');
+                    if (name.length > 20) name = name.slice(0, 20) + '…';
                     var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
                     return '<b>' + name + '</b><br/>' + pct;
                   }

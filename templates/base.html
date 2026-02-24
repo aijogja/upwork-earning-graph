@@ -157,6 +157,10 @@
       if (link.getAttribute('href') && link.getAttribute('href').startsWith('#')) return;
       showLoading();
     });
+
+    window.addEventListener('beforeunload', function () {
+      showLoading();
+    });
   })();
 </script>
 {% if google_analytics_id %}

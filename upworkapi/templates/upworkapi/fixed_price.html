@@ -38,6 +38,28 @@
     #client_pie_yearly{
       min-height: 420px;
     }
+    .pie-label-name{
+      white-space: nowrap;
+      display: inline-block;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: bottom;
+    }
+    .fixed-details-table{
+      table-layout: auto;
+    }
+    .fixed-details-table .col-client{
+      width: 120px;
+    }
+    .fixed-details-table .col-amount{
+      width: 90px;
+    }
+    .fixed-details-table th,
+    .fixed-details-table td{
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
   }
 </style>
 
@@ -131,8 +153,8 @@
                 <tr>
                   <th class="col-date">Date</th>
                   <th class="col-client">Client</th>
-                  <th class="col-desc">Description</th>
-                  <th class="text-right col-amount">Amount</th>
+                  <th class="col-desc text-nowrap">Description</th>
+                  <th class="text-right col-amount text-nowrap">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -223,6 +245,8 @@
                 if (this.options.month) {
                   var baseUrl = '{% url "fixed_price_graph" %}';
                   baseUrl = baseUrl.replace(/\/$/, '');
+                  var overlay = document.getElementById('loading-overlay');
+                  if (overlay) overlay.classList.remove('loading-hidden');
                   window.location.href = baseUrl + '/' + {{ year }} + '/' + this.options.month;
                 }
               }
@@ -258,6 +282,7 @@
 
       var totalUSD = pieData.reduce(function (s, p) { return s + p.y; }, 0);
 
+      var isMobile = window.matchMedia && window.matchMedia('(max-width: 576px)').matches;
       Highcharts.chart('client_pie_yearly', {
         chart: { type: 'pie' },
         title: { text: null },
@@ -280,16 +305,57 @@
       },
         plotOptions: {
           pie: {
-            startAngle: -140,
-            endAngle: 220,
+            startAngle: -150,
+            endAngle: 210,
             innerSize: '55%',
             size: '85%',
             dataLabels: {
               enabled: true,
               distance: 20,
-              format: '<b>{point.name}</b><br/>${point.y:,.2f} ({point.percentage:.1f}%)'
+              useHTML: true,
+              formatter: function () {
+                if (isMobile) {
+                  var mobileName = (this.point.name || '').trim();
+                  mobileName = mobileName.replace(/\s+/g, '\u00A0');
+                  var mobilePct = Highcharts.numberFormat(this.percentage, 1) + '%';
+                  return '<span class="pie-label-name"><b>' + mobileName + '</b></span><br/>' + mobilePct;
+                }
+                return (
+                  '<b>' + this.point.name + '</b><br/>$' +
+                  Highcharts.numberFormat(this.point.y, 2) +
+                  ' (' + Highcharts.numberFormat(this.percentage, 1) + '%)'
+                );
+              }
             }
           }
+        },
+        responsive: {
+          rules: [{
+            condition: { maxWidth: 576 },
+            chartOptions: {
+              chart: { height: 420, spacingLeft: 60, spacingRight: 60 },
+              plotOptions: {
+                pie: {
+                  size: '86%',
+                  dataLabels: {
+                    enabled: true,
+                    distance: 12,
+                    crop: false,
+                    overflow: 'none',
+                    useHTML: false,
+                    style: { fontSize: '8px', textOverflow: 'none', lineHeight: '11px' },
+                    formatter: function () {
+                      var name = (this.point.name || '').trim();
+                      name = name.replace(/\s+/g, '\u00A0');
+                      if (name.length > 20) name = name.slice(0, 20) + '…';
+                      var pct = Highcharts.numberFormat(this.percentage, 1) + '%';
+                      return '<b>' + name + '</b><br/>' + pct;
+                    }
+                  }
+                }
+              }
+            }
+          }]
         },
         series: [{ name: 'Earning', data: pieData }],
         exporting: { enabled: false }
