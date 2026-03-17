@@ -36,7 +36,9 @@ SECRET_KEY = env("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
 
-ALLOWED_HOSTS = env("ALLOWED_HOSTS").split(",")
+ALLOWED_HOSTS = env("ALLOWED_HOSTS", default="localhost,127.0.0.1,192.168.0.138").split(
+    ","
+)
 
 
 # Application definition
@@ -136,6 +138,31 @@ STATIC_URL = "/static/"
 
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
 
+# Cache
+# Default Django cache is DummyCache (no-op). Use a real backend so the expensive
+# Upwork aggregation endpoints can be served quickly after warming.
+DJANGO_CACHE_DIR = env.str(
+    "DJANGO_CACHE_DIR", os.path.join("/tmp", "upwork-earning-graph-cache")
+)
+try:
+    os.makedirs(DJANGO_CACHE_DIR, exist_ok=True)
+except Exception:
+    # If the dir can't be created (read-only FS), fall back to /tmp.
+    DJANGO_CACHE_DIR = os.path.join("/tmp", "upwork-earning-graph-cache")
+    os.makedirs(DJANGO_CACHE_DIR, exist_ok=True)
+
+CACHES = {
+    "default": {
+        "BACKEND": env.str(
+            "DJANGO_CACHE_BACKEND",
+            "django.core.cache.backends.filebased.FileBasedCache",
+        ),
+        "LOCATION": env.str("DJANGO_CACHE_LOCATION", DJANGO_CACHE_DIR),
+        "TIMEOUT": env.int("DJANGO_CACHE_TIMEOUT", 300),
+        "OPTIONS": {"MAX_ENTRIES": env.int("DJANGO_CACHE_MAX_ENTRIES", 5000)},
+    }
+}
+
 # SMTP
 if os.environ.get("EMAIL_BACKEND") == "smtp":
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -178,7 +205,9 @@ if USE_AWS_S3:
 # Upwork API
 UPWORK_PUBLIC_KEY = env("UPWORK_PUBLIC_KEY")
 UPWORK_SECRET_KEY = env("UPWORK_SECRET_KEY")
-UPWORK_CALLBACK_URL = env("UPWORK_CALLBACK_URL")
+UPWORK_CALLBACK_URL = env(
+    "UPWORK_CALLBACK_URL", default="http://192.168.0.138:8000/callback"
+)
 
 # Analytics
 

@@ -20,6 +20,32 @@
       </div>
     </div>
 
+    {% if is_warming %}
+    <div class="alert alert-info">
+      Preparing all-time data: {{ warm_progress.done|default:"0" }}/{{ warm_progress.total|default:"0" }} years cached.
+      Keep this tab open, it will refresh automatically.
+    </div>
+    <script>
+      (function () {
+        var done = Number('{{ warm_progress.done|default:"0" }}') || 0;
+        var total = Number('{{ warm_progress.total|default:"0" }}') || 0;
+
+        var overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+          overlay.classList.remove('loading-hidden');
+          var txt = overlay.querySelector('.loading-text');
+          if (txt) {
+            var suffix = total ? (' (' + done + '/' + total + ')') : '';
+            txt.textContent = 'Preparing all-time data, please wait' + suffix;
+          }
+        }
+
+        var delayMs = (total && done >= total) ? 2000 : 15000;
+        setTimeout(function () { window.location.reload(); }, delayMs);
+      })();
+    </script>
+    {% endif %}
+
     <div class="row">
       <div class="col-lg-6">
         <p class="lead mb-3">
