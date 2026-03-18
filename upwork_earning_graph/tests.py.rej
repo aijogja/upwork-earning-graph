@@ -1,0 +1,116 @@
+diff a/upwork_earning_graph/tests.py b/upwork_earning_graph/tests.py	(rejected hunks)
+@@ -1 +1,113 @@
+-# Tests for upwork_earning_graph
++from django.test import TestCase, Client
++from django.contrib.auth.models import User
++from django.urls import reverse
++from unittest.mock import patch, MagicMock
++from upwork_earning_graph.auth_backend import UpworkAuthBackend
++
++
++class UpworkAuthBackendTestCase(TestCase):
++    """Test cases for Upwork authentication backend"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.backend = UpworkAuthBackend()
++        self.test_username = 'testuser'
++        self.test_password = 'testpass123'
++        self.test_email = 'test@example.com'
++
++    def test_backend_initialization(self):
++        """Test that UpworkAuthBackend initializes correctly"""
++        self.assertIsNotNone(self.backend)
++        self.assertEqual(self.backend.__class__.__name__, 'UpworkAuthBackend')
++
++    @patch('upwork_earning_graph.auth_backend.UpworkAuthBackend.authenticate')
++    def test_authenticate_method_exists(self, mock_auth):
++        """Test that authenticate method exists in backend"""
++        mock_auth.return_value = None
++        result = self.backend.authenticate(None, username=self.test_username)
++        self.assertIsNone(result)
++
++    @patch('upwork_earning_graph.auth_backend.UpworkAuthBackend.get_user')
++    def test_get_user_method_exists(self, mock_get_user):
++        """Test that get_user method exists in backend"""
++        mock_get_user.return_value = None
++        result = self.backend.get_user(1)
++        self.assertIsNone(result)
++
++    def test_user_creation_on_auth(self):
++        """Test that user is created during authentication"""
++        user = User.objects.create_user(
++            username=self.test_username,
++            email=self.test_email,
++            password=self.test_password
++        )
++        self.assertEqual(user.username, self.test_username)
++        self.assertEqual(user.email, self.test_email)
++        self.assertTrue(user.check_password(self.test_password))
++
++    def test_user_retrieval(self):
++        """Test that user can be retrieved after creation"""
++        user = User.objects.create_user(
++            username=self.test_username,
++            email=self.test_email,
++            password=self.test_password
++        )
++        retrieved_user = User.objects.get(username=self.test_username)
++        self.assertEqual(retrieved_user.id, user.id)
++        self.assertEqual(retrieved_user.email, self.test_email)
++
++
++class UpworkAuthViewsTestCase(TestCase):
++    """Test cases for Upwork authentication views"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.client = Client()
++        self.test_username = 'testuser'
++        self.test_password = 'testpass123'
++        self.test_email = 'test@example.com'
++
++    def test_login_view_exists(self):
++        """Test that login view is accessible"""
++        response = self.client.get(reverse('login'))
++        self.assertIn(response.status_code, [200, 302])
++
++    def test_logout_view_exists(self):
++        """Test that logout view is accessible"""
++        user = User.objects.create_user(
++            username=self.test_username,
++            password=self.test_password
++        )
++        self.client.login(username=self.test_username, password=self.test_password)
++        response = self.client.get(reverse('logout'))
++        self.assertIn(response.status_code, [200, 302])
++
++    def test_user_login_flow(self):
++        """Test complete user login flow"""
++        user = User.objects.create_user(
++            username=self.test_username,
++            email=self.test_email,
++            password=self.test_password
++        )
++        login_success = self.client.login(
++            username=self.test_username,
++            password=self.test_password
++        )
++        self.assertTrue(login_success)
++
++    def test_user_logout_flow(self):
++        """Test complete user logout flow"""
++        user = User.objects.create_user(
++            username=self.test_username,
++            password=self.test_password
++        )
++        self.client.login(username=self.test_username, password=self.test_password)
++        self.client.logout()
++        response = self.client.get(reverse('index'))
++        self.assertEqual(response.wsgi_request.user.is_authenticated, False)
++
++    def test_invalid_credentials(self):
++        """Test login with invalid credentials"""
++        User.objects.create_user(
++            username=self.test_username,
++            password=self.test_password

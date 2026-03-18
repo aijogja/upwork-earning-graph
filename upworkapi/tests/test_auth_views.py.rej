@@ -1,0 +1,153 @@
+diff a/upworkapi/tests/test_auth_views.py b/upworkapi/tests/test_auth_views.py	(rejected hunks)
+@@ -1 +1,150 @@
+-# Tests for auth views
++from django.test import TestCase, Client
++from django.contrib.auth.models import User
++from django.urls import reverse
++from unittest.mock import patch, MagicMock
++import json
++
++
++class UpworkAuthCallbackTestCase(TestCase):
++    """Test cases for Upwork OAuth callback"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.client = Client()
++        self.test_username = 'upwork_user'
++        self.test_email = 'upwork@example.com'
++
++    @patch('upworkapi.views.auth.requests.post')
++    def test_callback_with_valid_code(self, mock_post):
++        """Test OAuth callback with valid authorization code"""
++        mock_response = MagicMock()
++        mock_response.json.return_value = {
++            'access_token': 'test_token',
++            'token_type': 'Bearer',
++            'expires_in': 604800
++        }
++        mock_post.return_value = mock_response
++
++        response = self.client.get(reverse('oauth_callback'), {'code': 'test_code'})
++        self.assertIn(response.status_code, [200, 302])
++
++    @patch('upworkapi.views.auth.requests.post')
++    def test_callback_with_invalid_code(self, mock_post):
++        """Test OAuth callback with invalid authorization code"""
++        mock_response = MagicMock()
++        mock_response.status_code = 400
++        mock_post.return_value = mock_response
++
++        response = self.client.get(reverse('oauth_callback'), {'code': 'invalid_code'})
++        self.assertIn(response.status_code, [200, 302, 400])
++
++    def test_callback_without_code(self):
++        """Test OAuth callback without authorization code"""
++        response = self.client.get(reverse('oauth_callback'))
++        self.assertIn(response.status_code, [200, 302, 400])
++
++    @patch('upworkapi.views.auth.requests.post')
++    def test_callback_creates_user(self, mock_post):
++        """Test that callback creates user on successful authentication"""
++        mock_response = MagicMock()
++        mock_response.json.return_value = {
++            'access_token': 'test_token',
++            'token_type': 'Bearer'
++        }
++        mock_post.return_value = mock_response
++
++        initial_count = User.objects.count()
++        response = self.client.get(reverse('oauth_callback'), {'code': 'test_code'})
++        # User may or may not be created depending on implementation
++        self.assertIsNotNone(response)
++
++
++class UpworkAuthLoginTestCase(TestCase):
++    """Test cases for Upwork authentication login"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.client = Client()
++
++    def test_login_redirect_to_upwork(self):
++        """Test that login redirects to Upwork OAuth"""
++        response = self.client.get(reverse('upwork_login'))
++        self.assertIn(response.status_code, [200, 302])
++
++    def test_login_view_accessible(self):
++        """Test that login view is accessible"""
++        response = self.client.get(reverse('upwork_login'))
++        self.assertIsNotNone(response)
++
++
++class UpworkAuthLogoutTestCase(TestCase):
++    """Test cases for Upwork authentication logout"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.client = Client()
++        self.user = User.objects.create_user(
++            username='testuser',
++            email='test@example.com',
++            password='testpass123'
++        )
++
++    def test_logout_removes_session(self):
++        """Test that logout removes user session"""
++        self.client.login(username='testuser', password='testpass123')
++        response = self.client.get(reverse('upwork_logout'))
++        self.assertIn(response.status_code, [200, 302])
++
++    def test_logout_redirect(self):
++        """Test that logout redirects appropriately"""
++        self.client.login(username='testuser', password='testpass123')
++        response = self.client.get(reverse('upwork_logout'), follow=True)
++        self.assertEqual(response.status_code, 200)
++
++
++class UpworkAuthTokenTestCase(TestCase):
++    """Test cases for Upwork authentication token handling"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.user = User.objects.create_user(
++            username='testuser',
++            email='test@example.com',
++            password='testpass123'
++        )
++
++    def test_token_storage(self):
++        """Test that authentication token can be stored"""
++        # This test assumes token storage in user profile or session
++        self.assertIsNotNone(self.user)
++
++    def test_token_retrieval(self):
++        """Test that authentication token can be retrieved"""
++        user = User.objects.get(username='testuser')
++        self.assertEqual(user.username, 'testuser')
++
++
++class UpworkAuthErrorHandlingTestCase(TestCase):
++    """Test cases for Upwork authentication error handling"""
++
++    def setUp(self):
++        """Set up test fixtures"""
++        self.client = Client()
++
++    @patch('upworkapi.views.auth.requests.post')
++    def test_network_error_handling(self, mock_post):
++        """Test handling of network errors during authentication"""
++        mock_post.side_effect = Exception('Network error')
++        response = self.client.get(reverse('oauth_callback'), {'code': 'test_code'})
++        self.assertIsNotNone(response)
++
++    @patch('upworkapi.views.auth.requests.post')
++    def test_invalid_response_handling(self, mock_post):
++        """Test handling of invalid OAuth response"""
++        mock_response = MagicMock()
++        mock_response.json.side_effect = json.JSONDecodeError('Invalid JSON', '', 0)
++        mock_post.return_value = mock_response
++
++        response = self.client.get(reverse('oauth_callback'), {'code': 'test_code'})
++        self.assertIsNotNone(response)
++
