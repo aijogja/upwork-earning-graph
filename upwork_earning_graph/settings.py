@@ -36,8 +36,7 @@ SECRET_KEY = env("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
 
-ALLOWED_HOSTS = env("ALLOWED_HOSTS", default="localhost,127.0.0.1,192.168.0.138").split(
-    ","
+ALLOWED_HOSTS = env("ALLOWED_HOSTS").split(",")
 )
 
 
@@ -206,7 +205,7 @@ if USE_AWS_S3:
 UPWORK_PUBLIC_KEY = env("UPWORK_PUBLIC_KEY")
 UPWORK_SECRET_KEY = env("UPWORK_SECRET_KEY")
 UPWORK_CALLBACK_URL = env(
-    "UPWORK_CALLBACK_URL", default="http://192.168.0.138:8000/callback"
+    "UPWORK_CALLBACK_URL"
 )
 
 # Analytics
