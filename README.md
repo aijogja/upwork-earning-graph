@@ -1,5 +1,5 @@
 # upwork-earning-graph
-About Upwork Earning Graph (http://192.168.0.138:8000/)
+About Upwork Earning Graph (https://upwork.aijogja.com)
 
 ## Requirements
 - Python 3.12
@@ -9,18 +9,17 @@ About Upwork Earning Graph (http://192.168.0.138:8000/)
 - create virtualenv
 - pip install -r requirements.txt
 - create `.env` file
-- run server (LAN): `python3 manage.py runserver 192.168.0.138:8000`
+-  run server (LAN): `python3 manage.py runserver 192.168.0.138:8000`
 
 ## `.env` file
 Here are the `.env` file
 ```
 DEBUG=on
 SECRET_KEY=secret
-ALLOWED_HOSTS=192.168.0.138,localhost,127.0.0.1
+ALLOWED_HOSTS=
 DATABASE_URL=psql://docker:docker@127.0.0.1:5432/upwork_earning_graph
 UPWORK_PUBLIC_KEY=upwork-public-key
 UPWORK_SECRET_KEY=upwork-secret-key
-UPWORK_CALLBACK_URL=http://192.168.0.138:8000/callback
 ```
 
 ## Contribution
