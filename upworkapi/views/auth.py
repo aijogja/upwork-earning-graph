@@ -55,8 +55,10 @@ def callback(request):
 
     try:
         token = client.get_access_token(authz_code)
-        if isinstance(token, dict) and token.get("expires_in") and not token.get(
-            "expires_at"
+        if (
+            isinstance(token, dict)
+            and token.get("expires_in")
+            and not token.get("expires_at")
         ):
             try:
                 token["expires_at"] = time.time() + int(token["expires_in"])
