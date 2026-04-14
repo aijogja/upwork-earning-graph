@@ -20,7 +20,12 @@ ALLOWED_HOSTS=
 DATABASE_URL=psql://docker:docker@127.0.0.1:5432/upwork_earning_graph
 UPWORK_PUBLIC_KEY=upwork-public-key
 UPWORK_SECRET_KEY=upwork-secret-key
+UPWORK_CALLBACK_URL=http://localhost:8000/callback/
 ```
+
+Notes:
+- `UPWORK_CALLBACK_URL` must exactly match the Redirect URI configured in your Upwork app (scheme/host/port/path, including the trailing slash).
+- Start the OAuth flow from `http://<host>:8000/auth/` (so the `state` value is stored in the session).
 
 ## Contribution
 To contribute, please setup in you local environment.

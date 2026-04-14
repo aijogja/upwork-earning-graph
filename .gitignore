@@ -8,3 +8,6 @@ local_settings.py
 docker.env
 venv/
 .venv/
+*.example
+.env.example
+README.md

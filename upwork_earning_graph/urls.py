@@ -27,6 +27,9 @@ urlpatterns = [
     path("contact/", contact, name="contact"),
     path("auth/", auth.auth_view, name="auth"),
     path("callback/", auth.callback, name="callback"),
+    # Upwork requires an exact redirect URI match; support both /callback and /callback/
+    # to avoid APPEND_SLASH redirects during OAuth.
+    path("callback", auth.callback),
     path("logout/", auth.disconnect, name="logout"),
     path("earning/", reports.earning_graph, name="earning_graph"),
     path("earning/total/", reports.total_earning_graph_trx, name="total_earning_graph"),
