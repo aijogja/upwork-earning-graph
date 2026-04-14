@@ -1718,7 +1718,7 @@ def all_time_earning_graph(request):
         messages.warning(request, "Missing token. Please login again.")
         return redirect("auth")
 
-    cache_key = _cache_key("all_time_earning_v2", request.user.id, tenant_id or "")
+    cache_key = _cache_key("all_time_earning_v3", request.user.id, tenant_id or "")
     cached = cache.get(cache_key)
     if cached is not None:
         return render(request, "upworkapi/all_time_earning.html", cached)
@@ -1729,6 +1729,7 @@ def all_time_earning_graph(request):
 
     totals = []
     client_totals = defaultdict(float)
+    yearly_client_totals = []
     unknown_rows = []
     missing_years = []
     try:
@@ -1763,6 +1764,7 @@ def all_time_earning_graph(request):
                 continue
 
             year_totals = summary.get("client_totals") or {}
+            yearly_client_totals.append({"year": y, "client_totals": year_totals})
             for name, total in year_totals.items():
                 client_totals[name] += float(total or 0)
             unknown_rows.extend(summary.get("unknown_rows") or [])
@@ -1820,6 +1822,7 @@ def all_time_earning_graph(request):
 
     years = years[first_idx:] or years
     totals = totals[first_idx:] or totals
+    yearly_client_totals = yearly_client_totals[first_idx:] or yearly_client_totals
 
     x_axis = [str(y) for y in years]
     total_earning = round(sum(totals), 2)
@@ -1870,6 +1873,26 @@ def all_time_earning_graph(request):
             if float(r["total"]) > 0
         ]
     )
+
+    # Build year-by-year cumulative pie data for animation (aligned with graph.x_axis).
+    # Ordering follows overall totals (client_rows) for stable slice ordering.
+    client_order = [r["name"] for r in data.get("client_rows") or []]
+    cumulative = defaultdict(float)
+    yearly_pie = []
+    for entry in yearly_client_totals:
+        year_totals = entry.get("client_totals") or {}
+        for name, total in year_totals.items():
+            if _is_excluded_client_label({"description": name}, name):
+                continue
+            cumulative[name] += float(total or 0)
+
+        points = []
+        for name in client_order:
+            val = float(cumulative.get(name) or 0)
+            if val > 0:
+                points.append({"name": name, "y": round(val, 2)})
+        yearly_pie.append(points)
+    data["yearly_client_pie_data"] = json.dumps(yearly_pie)
     data["unknown_rows"] = sorted(
         unknown_rows, key=lambda row: abs(row.get("amount") or 0), reverse=True
     )
