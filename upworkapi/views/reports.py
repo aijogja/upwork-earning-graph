@@ -1932,14 +1932,18 @@ def all_time_hourly_graph(request):
 
     totals = []
     client_totals = defaultdict(float)
+    yearly_client_totals = []
     try:
         for y in years:
             yearly_report = _cached_timereport_year(request, token, str(y))
             total_hours = float(yearly_report.get("total_hours") or 0)
+            year_totals = defaultdict(float)
             for row in yearly_report.get("client_rows") or []:
-                client_totals[
-                    _normalize_client_name(row.get("name") or "Unknown")
-                ] += float(row.get("total") or 0)
+                name = _normalize_client_name(row.get("name") or "Unknown")
+                amt = float(row.get("total") or 0)
+                client_totals[name] += amt
+                year_totals[name] += amt
+            yearly_client_totals.append({"year": y, "client_totals": dict(year_totals)})
             totals.append(round(total_hours, 2))
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
@@ -1953,6 +1957,7 @@ def all_time_hourly_graph(request):
 
     years = years[first_idx:] or years
     totals = totals[first_idx:] or totals
+    yearly_client_totals = yearly_client_totals[first_idx:] or yearly_client_totals
 
     x_axis = [str(y) for y in years]
     total_earning = round(sum(totals), 2)
@@ -1984,6 +1989,25 @@ def all_time_hourly_graph(request):
             if float(r["total"]) > 0
         ]
     )
+
+    # Build year-by-year cumulative pie data for animation (aligned with graph.x_axis).
+    client_order = [r["name"] for r in data.get("client_rows") or []]
+    cumulative = defaultdict(float)
+    yearly_pie = []
+    for entry in yearly_client_totals:
+        year_totals = entry.get("client_totals") or {}
+        for name, total in year_totals.items():
+            if _is_excluded_client_label({"description": name}, name):
+                continue
+            cumulative[name] += float(total or 0)
+
+        points = []
+        for name in client_order:
+            val = float(cumulative.get(name) or 0)
+            if val > 0:
+                points.append({"name": name, "y": round(val, 2)})
+        yearly_pie.append(points)
+    data["yearly_client_pie_data"] = json.dumps(yearly_pie)
     return render(request, "upworkapi/all_time_hourly.html", data)
 
 

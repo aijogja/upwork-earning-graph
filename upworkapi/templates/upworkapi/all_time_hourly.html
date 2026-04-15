@@ -9,6 +9,7 @@
     width: 100%;
     height: 520px;
   }
+  #yearly-anim-controls .custom-range { width: 100%; }
 </style>
 
 <div class="row">
@@ -31,6 +32,14 @@
           </table>
         </p>
       </div>
+    </div>
+
+    <div id="yearly-anim-controls" class="d-flex align-items-center mb-2" style="gap: 10px;">
+      <button id="yearly-anim-play" type="button" class="btn btn-sm btn-outline-primary">Play</button>
+      <button id="yearly-anim-pause" type="button" class="btn btn-sm btn-outline-secondary">Pause</button>
+      <button id="yearly-anim-reset" type="button" class="btn btn-sm btn-outline-secondary">Reset</button>
+      <input id="yearly-anim-range" type="range" class="custom-range flex-fill" min="0" max="0" value="0" step="1" />
+      <div class="text-muted text-nowrap">Year: <span id="yearly-anim-year">-</span></div>
     </div>
 
     <div id="earning_graph" class="highcharts-graph mb-3"></div>
@@ -125,9 +134,9 @@
       exporting: { enabled: false }
     });
   });
-</script>
-{% endautoescape %}
-{% autoescape off %}
+	</script>
+	{% endautoescape %}
+	{% autoescape off %}
 <script>
 $(function () {
   try {
@@ -169,7 +178,7 @@ $(function () {
         pie: {
           startAngle: -150,
           endAngle: 210,
-          innerSize: '55%',
+          innerSize: '45%',
           size: '85%',
           dataLabels: {
             enabled: true,
@@ -251,6 +260,148 @@ $(function () {
       '<div class="text-danger">Pie chart error</div>';
   }
 });
-</script>
-{% endautoescape %}
-{% endblock js_extra %}
+	</script>
+	{% endautoescape %}
+
+  {% autoescape off %}
+  <script>
+    $(function () {
+      var years = {{ graph.x_axis|default:"[]"|safe }};
+      var totals = {{ graph.report|default:"[]"|safe }};
+      var yearlyPie = {{ yearly_client_pie_data|default:"[]"|safe }};
+
+      var rangeEl = document.getElementById('yearly-anim-range');
+      var yearEl = document.getElementById('yearly-anim-year');
+      var controlsEl = document.getElementById('yearly-anim-controls');
+      var playEl = document.getElementById('yearly-anim-play');
+      var pauseEl = document.getElementById('yearly-anim-pause');
+      var resetEl = document.getElementById('yearly-anim-reset');
+
+      if (!rangeEl || !yearEl || !controlsEl || !playEl || !pauseEl || !resetEl) return;
+      if (!Array.isArray(years) || years.length < 2 || !Array.isArray(totals) || !totals.length) {
+        controlsEl.style.display = 'none';
+        return;
+      }
+
+      function findChartByRenderToId(id) {
+        var charts = (Highcharts && Highcharts.charts) ? Highcharts.charts : [];
+        for (var i = 0; i < charts.length; i++) {
+          var c = charts[i];
+          if (c && c.renderTo && c.renderTo.id === id) return c;
+        }
+        return null;
+      }
+
+      var columnChart = findChartByRenderToId('earning_graph');
+      var pieChart = findChartByRenderToId('client_pie_yearly');
+      if (!columnChart) {
+        controlsEl.style.display = 'none';
+        return;
+      }
+
+      var maxIdx = years.length - 1;
+      rangeEl.max = String(maxIdx);
+      rangeEl.value = String(maxIdx);
+
+      var timer = null;
+      var currentIdx = maxIdx;
+
+      function setYear(idx, animate) {
+        if (typeof idx !== 'number' || isNaN(idx)) idx = 0;
+        idx = Math.max(0, Math.min(maxIdx, idx));
+        currentIdx = idx;
+        rangeEl.value = String(idx);
+        yearEl.textContent = String(years[idx] || '');
+
+        var seriesData = [];
+        for (var i = 0; i < totals.length; i++) {
+          seriesData.push(i <= idx ? (Number(totals[i]) || 0) : 0);
+        }
+        var anim = animate ? { duration: 450 } : false;
+        if (columnChart.series && columnChart.series[0]) {
+          columnChart.series[0].setData(seriesData, true, anim, true);
+        }
+
+        if (pieChart && Array.isArray(yearlyPie) && yearlyPie.length) {
+          var pieData = yearlyPie[idx] || [];
+          pieData = (pieData || []).map(function (p) {
+            return { name: p.name, y: Number(p.y) || 0 };
+          }).filter(function (p) { return p.y > 0; });
+
+          var totalHours = pieData.reduce(function (s, p) { return s + (Number(p.y) || 0); }, 0);
+          if (pieChart.series && pieChart.series[0]) {
+            pieChart.series[0].setData(pieData, true, anim, true);
+          }
+          if (typeof pieChart.setSubtitle === 'function') {
+            pieChart.setSubtitle({
+              text: 'Up to <b>' + String(years[idx]) + '</b><br/>Total: <b>' + Highcharts.numberFormat(totalHours, 2) + ' hrs</b>',
+              align: 'center',
+              verticalAlign: 'middle',
+              y: 10,
+              useHTML: true
+            });
+          }
+        }
+      }
+
+      function pause() {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+
+      function play() {
+        if (timer) return;
+        var start = Number(rangeEl.value) || 0;
+        if (start >= maxIdx) start = 0;
+        setYear(start, true);
+        timer = setInterval(function () {
+          if (currentIdx >= maxIdx) {
+            pause();
+            return;
+          }
+          setYear(currentIdx + 1, true);
+        }, 900);
+      }
+
+      rangeEl.addEventListener('input', function () {
+        pause();
+        setYear(Number(rangeEl.value) || 0, true);
+      });
+      playEl.addEventListener('click', play);
+      pauseEl.addEventListener('click', pause);
+      resetEl.addEventListener('click', function () {
+        pause();
+        setYear(0, true);
+      });
+
+      setYear(maxIdx, false);
+
+      // Auto-play once if something (e.g. a prior warming flow) marks it as pending.
+      try {
+        var path = window.location.pathname;
+        var pendingKey = 'yearly_anim_autoplay_pending:' + path;
+        var doneKey = 'yearly_anim_autoplay_done:' + path;
+        var storage = window.sessionStorage || window.localStorage;
+        if (storage) {
+          var shouldPlay = false;
+          if (window.localStorage && localStorage.getItem(pendingKey) === '1') {
+            localStorage.removeItem(pendingKey);
+            shouldPlay = true;
+          } else if (storage.getItem(doneKey) !== '1') {
+            storage.setItem(doneKey, '1');
+            shouldPlay = true;
+          }
+          if (shouldPlay) {
+            setTimeout(function () {
+              setYear(0, false);
+              play();
+            }, 350);
+          }
+        }
+      } catch (e) {}
+    });
+  </script>
+  {% endautoescape %}
+	{% endblock js_extra %}
