@@ -5,6 +5,8 @@ import time
 import calendar
 import json
 import re
+import threading
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.contrib import messages
@@ -24,6 +26,8 @@ from upworkapi.utils import upwork_client
 
 CACHE_TTL_SECONDS = 900
 ALL_TIME_CACHE_SECONDS = 21600
+ALL_TIME_WARM_LOCK_SECONDS = 3600
+JOIN_YEAR_CACHE_SECONDS = 86400 * 30
 
 
 def _cache_key(prefix: str, *parts) -> str:
@@ -37,6 +41,189 @@ def _date_key(d) -> str:
     if isinstance(d, date):
         return d.strftime("%Y%m%d")
     return str(d)
+
+
+def _request_stub(user_id):
+    # Many cached helpers only use request.user.id for cache keys.
+    return SimpleNamespace(user=SimpleNamespace(id=user_id))
+
+
+def _dig(obj, path, default=None):
+    cur = obj
+    for p in path:
+        if isinstance(cur, dict):
+            cur = cur.get(p)
+        else:
+            return default
+        if cur is None:
+            return default
+    return cur
+
+
+def _parse_year(value):
+    if value is None:
+        return None
+    if isinstance(value, (datetime, date)):
+        return int(value.year)
+    if isinstance(value, dict):
+        for k in ("rawValue", "displayValue", "value"):
+            if k in value:
+                return _parse_year(value.get(k))
+        return None
+    if isinstance(value, (int, float)):
+        n = int(value)
+        # Heuristic: unix millis vs seconds.
+        if n > 10**12:
+            try:
+                return datetime.utcfromtimestamp(n / 1000.0).year
+            except Exception:
+                return None
+        if n > 10**9:
+            try:
+                return datetime.utcfromtimestamp(n).year
+            except Exception:
+                return None
+        # Bare year.
+        if 1900 <= n <= 2100:
+            return n
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    m = re.search(r"(19\\d{2}|20\\d{2}|21\\d{2})", s)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _cached_upwork_join_year(request, *, token, tenant_id, freelancer_reference):
+    key = _cache_key(
+        "upwork_join_year",
+        request.user.id,
+        tenant_id or "",
+        freelancer_reference or "",
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        try:
+            return int(cached)
+        except Exception:
+            pass
+
+    year = None
+    try:
+        client = upwork_client.get_client(token)
+        if tenant_id:
+            client.set_org_uid_header(tenant_id)
+
+        # Try a few likely join/created date fields. If the schema differs, this
+        # safely falls back to a broad default.
+        query = """
+        query JoinYear {
+          user {
+            createdDateTime { rawValue displayValue }
+            freelancerProfile {
+              createdDateTime { rawValue displayValue }
+            }
+          }
+        }
+        """
+        resp = graphql.Api(client).execute({"query": query})
+        candidates = [
+            ("data", "user", "createdDateTime", "rawValue"),
+            ("data", "user", "createdDateTime", "displayValue"),
+            ("data", "user", "createdDateTime"),
+            ("data", "user", "freelancerProfile", "createdDateTime", "rawValue"),
+            ("data", "user", "freelancerProfile", "createdDateTime", "displayValue"),
+            ("data", "user", "freelancerProfile", "createdDateTime"),
+        ]
+        for path in candidates:
+            year = _parse_year(_dig(resp, path))
+            if year:
+                break
+    except Exception:
+        year = None
+
+    current_year = datetime.now().year
+    if not year or year < 2000 or year > current_year:
+        year = 2010
+
+    cache.set(key, year, JOIN_YEAR_CACHE_SECONDS)
+    return year
+
+
+def _warm_all_time_years_async(
+    *,
+    user_id,
+    token,
+    tenant_id,
+    tenant_ids,
+    freelancer_reference,
+    years,
+):
+    if not years:
+        return False
+
+    lock_key = _cache_key(
+        "all_time_warm_lock", user_id, tenant_id or "", freelancer_reference
+    )
+    progress_key = _cache_key(
+        "all_time_warm_progress", user_id, tenant_id or "", freelancer_reference
+    )
+
+    if not cache.add(lock_key, "1", ALL_TIME_WARM_LOCK_SECONDS):
+        return False
+
+    cache.set(
+        progress_key,
+        {
+            "total": len(years),
+            "done": 0,
+            "missing_years": list(years),
+            "started_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "last_error": "",
+        },
+        ALL_TIME_WARM_LOCK_SECONDS,
+    )
+
+    def _run():
+        try:
+            req = _request_stub(user_id)
+            done = 0
+            last_error = ""
+            for y in years:
+                try:
+                    _cached_all_time_year_summary(
+                        req,
+                        token=token,
+                        tenant_id=tenant_id,
+                        tenant_ids=tenant_ids,
+                        freelancer_reference=freelancer_reference,
+                        year=int(y),
+                    )
+                except Exception as exc:
+                    last_error = str(exc)
+                done += 1
+                cache.set(
+                    progress_key,
+                    {
+                        "total": len(years),
+                        "done": done,
+                        "missing_years": list(years[done:]),
+                        "started_at": cache.get(progress_key, {}).get("started_at"),
+                        "last_error": last_error,
+                    },
+                    ALL_TIME_WARM_LOCK_SECONDS,
+                )
+        finally:
+            cache.delete(lock_key)
+
+    t = threading.Thread(target=_run, name="all_time_warm", daemon=True)
+    t.start()
+    return True
 
 
 def _cached_earning_graph_annually(request, token, year):
@@ -1531,17 +1718,18 @@ def all_time_earning_graph(request):
         messages.warning(request, "Missing token. Please login again.")
         return redirect("auth")
 
-    cache_key = _cache_key("all_time_earning", request.user.id, tenant_id or "")
+    cache_key = _cache_key("all_time_earning_v3", request.user.id, tenant_id or "")
     cached = cache.get(cache_key)
     if cached is not None:
         return render(request, "upworkapi/all_time_earning.html", cached)
 
     current_year = datetime.now().year
+    years = []
     start_year = 2010
-    years = list(range(start_year, current_year + 1))
 
     totals = []
     client_totals = defaultdict(float)
+    yearly_client_totals = []
     unknown_rows = []
     missing_years = []
     try:
@@ -1552,6 +1740,13 @@ def all_time_earning_graph(request):
             )
             or request.user.username
         )
+        start_year = _cached_upwork_join_year(
+            request,
+            token=token,
+            tenant_id=tenant_id,
+            freelancer_reference=freelancer_reference,
+        )
+        years = list(range(int(start_year), current_year + 1))
 
         available_years = []
 
@@ -1564,22 +1759,12 @@ def all_time_earning_graph(request):
                 y,
             )
             summary = cache.get(summary_key)
-
-            if summary is None:
-                summary = _cached_all_time_year_summary(
-                    request,
-                    token=token,
-                    freelancer_reference=freelancer_reference,
-                    tenant_id=tenant_id,
-                    tenant_ids=request.session.get("tenant_ids"),
-                    year=y,
-                )
-
             if summary is None:
                 missing_years.append(y)
                 continue
 
             year_totals = summary.get("client_totals") or {}
+            yearly_client_totals.append({"year": y, "client_totals": year_totals})
             for name, total in year_totals.items():
                 client_totals[name] += float(total or 0)
             unknown_rows.extend(summary.get("unknown_rows") or [])
@@ -1592,14 +1777,38 @@ def all_time_earning_graph(request):
             )
             available_years.append(y)
 
-        years = available_years or years
+        # If the cache is cold, don't block the request doing multi-year Upwork
+        # calls (Cloudflare/Gunicorn will time out). Warm missing years in the
+        # background and show partial data while it loads.
         if missing_years:
+            user_id = request.user.id
+            _warm_all_time_years_async(
+                user_id=user_id,
+                token=token,
+                tenant_id=tenant_id,
+                tenant_ids=request.session.get("tenant_ids"),
+                freelancer_reference=freelancer_reference,
+                years=list(missing_years),
+            )
+            progress_key = _cache_key(
+                "all_time_warm_progress", user_id, tenant_id or "", freelancer_reference
+            )
+            progress = cache.get(progress_key) or {}
+            done = int(progress.get("done") or 0)
+            total = int(progress.get("total") or len(missing_years))
+            data["warm_progress"] = {"done": done, "total": total}
+            data["is_warming"] = True
             messages.info(
                 request,
-                "All-time data is warming up. Refresh in a few minutes for full history.",
+                "All-time data is warming up (%s/%s). This page will auto-refresh."
+                % (done, total),
             )
+            years = available_years or years
+        else:
+            years = available_years or years
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
+        years = years or list(range(start_year, current_year + 1))
         totals = [0.0 for _ in years]
 
     if not totals and years:
@@ -1613,9 +1822,14 @@ def all_time_earning_graph(request):
 
     years = years[first_idx:] or years
     totals = totals[first_idx:] or totals
+    yearly_client_totals = yearly_client_totals[first_idx:] or yearly_client_totals
 
     x_axis = [str(y) for y in years]
     total_earning = round(sum(totals), 2)
+
+    if not x_axis:
+        x_axis = [str(current_year)]
+        totals = [0.0]
 
     data["graph"] = {
         "x_axis": x_axis,
@@ -1659,11 +1873,34 @@ def all_time_earning_graph(request):
             if float(r["total"]) > 0
         ]
     )
+
+    # Build year-by-year cumulative pie data for animation (aligned with graph.x_axis).
+    # Ordering follows overall totals (client_rows) for stable slice ordering.
+    client_order = [r["name"] for r in data.get("client_rows") or []]
+    cumulative = defaultdict(float)
+    yearly_pie = []
+    for entry in yearly_client_totals:
+        year_totals = entry.get("client_totals") or {}
+        for name, total in year_totals.items():
+            if _is_excluded_client_label({"description": name}, name):
+                continue
+            cumulative[name] += float(total or 0)
+
+        points = []
+        for name in client_order:
+            val = float(cumulative.get(name) or 0)
+            if val > 0:
+                points.append({"name": name, "y": round(val, 2)})
+        yearly_pie.append(points)
+    data["yearly_client_pie_data"] = json.dumps(yearly_pie)
     data["unknown_rows"] = sorted(
         unknown_rows, key=lambda row: abs(row.get("amount") or 0), reverse=True
     )
 
-    cache.set(cache_key, data, ALL_TIME_CACHE_SECONDS)
+    # Only cache the full page once all years are available, otherwise users get
+    # stuck with an incomplete page for the full TTL.
+    if not missing_years:
+        cache.set(cache_key, data, ALL_TIME_CACHE_SECONDS)
     return render(request, "upworkapi/all_time_earning.html", data)
 
 
@@ -1672,12 +1909,25 @@ def all_time_hourly_graph(request):
     data = {"page_title": "All Time Hourly"}
 
     token = request.session.get("token")
+    tenant_id = request.session.get("tenant_id")
     if not token:
         messages.warning(request, "Missing token. Please login again.")
         return redirect("auth")
 
     current_year = datetime.now().year
-    start_year = 2010
+    freelancer_reference = (
+        request.session.get("freelancer_reference")
+        or _profile_key_from_url(
+            (request.session.get("upwork_auth") or {}).get("profile_url")
+        )
+        or request.user.username
+    )
+    start_year = _cached_upwork_join_year(
+        request,
+        token=token,
+        tenant_id=tenant_id,
+        freelancer_reference=freelancer_reference,
+    )
     years = list(range(start_year, current_year + 1))
 
     totals = []

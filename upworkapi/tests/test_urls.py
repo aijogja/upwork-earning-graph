@@ -1,9 +1,9 @@
-from django.test import TestCase
+from django.test import SimpleTestCase
 from django.urls import reverse, resolve
 from upworkapi.views import auth, reports, debug
 
 
-class URLPatternsTestCase(TestCase):
+class URLPatternsTestCase(SimpleTestCase):
 
     def test_auth_url_pattern(self):
         url = reverse("auth")
@@ -13,6 +13,10 @@ class URLPatternsTestCase(TestCase):
     def test_callback_url_pattern(self):
         url = reverse("callback")
         self.assertEqual(url, "/callback/")
+        self.assertEqual(resolve(url).func, auth.callback)
+
+    def test_callback_url_pattern_without_trailing_slash(self):
+        url = "/callback"
         self.assertEqual(resolve(url).func, auth.callback)
 
     def test_logout_url_pattern(self):
@@ -55,7 +59,7 @@ class URLPatternsTestCase(TestCase):
         self.assertEqual(resolve(url).app_name, "admin")
 
 
-class URLReverseTestCase(TestCase):
+class URLReverseTestCase(SimpleTestCase):
 
     def test_reverse_home(self):
         url = reverse("home")
@@ -97,7 +101,7 @@ class URLReverseTestCase(TestCase):
         self.assertEqual(url, "/earning/2024/3/client/ABC%20Corp/")
 
 
-class URLParametersTestCase(TestCase):
+class URLParametersTestCase(SimpleTestCase):
 
     def test_earning_month_client_detail_with_different_years(self):
         for year in [2020, 2021, 2022, 2023, 2024]:
