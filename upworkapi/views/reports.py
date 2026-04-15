@@ -256,6 +256,100 @@ def _cached_timereport_year(request, token, year):
     return data
 
 
+def _cached_all_time_hourly_year_report(
+    request,
+    *,
+    token,
+    tenant_id,
+    year,
+):
+    key = _cache_key("all_time_hourly_year", request.user.id, tenant_id or "", year)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    # Reuse any short-lived cache if present, then extend TTL for all-time pages.
+    legacy_key = _cache_key("timereport_year", request.user.id, year)
+    legacy = cache.get(legacy_key)
+    if legacy is not None:
+        cache.set(key, legacy, ALL_TIME_CACHE_SECONDS)
+        return legacy
+
+    data = timereport_weekly(token, str(year))
+    cache.set(key, data, ALL_TIME_CACHE_SECONDS)
+    return data
+
+
+def _warm_all_time_hourly_years_async(
+    *,
+    user_id,
+    token,
+    tenant_id,
+    freelancer_reference,
+    years,
+):
+    if not years:
+        return False
+
+    lock_key = _cache_key(
+        "all_time_hourly_warm_lock", user_id, tenant_id or "", freelancer_reference
+    )
+    progress_key = _cache_key(
+        "all_time_hourly_warm_progress", user_id, tenant_id or "", freelancer_reference
+    )
+
+    if not cache.add(lock_key, "1", ALL_TIME_WARM_LOCK_SECONDS):
+        return False
+
+    cache.set(
+        progress_key,
+        {
+            "total": len(years),
+            "done": 0,
+            "missing_years": list(years),
+            "started_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "last_error": "",
+        },
+        ALL_TIME_WARM_LOCK_SECONDS,
+    )
+
+    def _run():
+        try:
+            req = _request_stub(user_id)
+            done = 0
+            last_error = ""
+            for y in years:
+                try:
+                    _cached_all_time_hourly_year_report(
+                        req,
+                        token=token,
+                        tenant_id=tenant_id,
+                        year=int(y),
+                    )
+                except Exception as exc:
+                    last_error = str(exc)
+                done += 1
+                cache.set(
+                    progress_key,
+                    {
+                        "total": len(years),
+                        "done": done,
+                        "missing_years": list(years[done:]),
+                        "started_at": cache.get(progress_key, {}).get("started_at"),
+                        "last_error": last_error,
+                    },
+                    ALL_TIME_WARM_LOCK_SECONDS,
+                )
+        finally:
+            cache.delete(lock_key)
+
+    t = threading.Thread(
+        target=_run, name="all_time_hourly_warm", daemon=True
+    )
+    t.start()
+    return True
+
+
 def _cached_fixed_price_transactions(
     request,
     *,
@@ -1914,6 +2008,11 @@ def all_time_hourly_graph(request):
         messages.warning(request, "Missing token. Please login again.")
         return redirect("auth")
 
+    cache_key = _cache_key("all_time_hourly_v2", request.user.id, tenant_id or "")
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return render(request, "upworkapi/all_time_hourly.html", cached)
+
     current_year = datetime.now().year
     freelancer_reference = (
         request.session.get("freelancer_reference")
@@ -1933,9 +2032,25 @@ def all_time_hourly_graph(request):
     totals = []
     client_totals = defaultdict(float)
     yearly_client_totals = []
+    missing_years = []
+    available_years = []
     try:
         for y in years:
-            yearly_report = _cached_timereport_year(request, token, str(y))
+            year_key = _cache_key(
+                "all_time_hourly_year", request.user.id, tenant_id or "", y
+            )
+            yearly_report = cache.get(year_key)
+            if yearly_report is None:
+                legacy_key = _cache_key("timereport_year", request.user.id, str(y))
+                legacy = cache.get(legacy_key)
+                if legacy is not None:
+                    yearly_report = legacy
+                    cache.set(year_key, legacy, ALL_TIME_CACHE_SECONDS)
+
+            if yearly_report is None:
+                missing_years.append(y)
+                continue
+
             total_hours = float(yearly_report.get("total_hours") or 0)
             year_totals = defaultdict(float)
             for row in yearly_report.get("client_rows") or []:
@@ -1945,6 +2060,39 @@ def all_time_hourly_graph(request):
                 year_totals[name] += amt
             yearly_client_totals.append({"year": y, "client_totals": dict(year_totals)})
             totals.append(round(total_hours, 2))
+            available_years.append(y)
+
+        # If the cache is cold, don't block the request doing multi-year Upwork
+        # calls (Cloudflare/Gunicorn will time out). Warm missing years in the
+        # background and show partial data while it loads.
+        if missing_years:
+            user_id = request.user.id
+            _warm_all_time_hourly_years_async(
+                user_id=user_id,
+                token=token,
+                tenant_id=tenant_id,
+                freelancer_reference=freelancer_reference,
+                years=list(missing_years),
+            )
+            progress_key = _cache_key(
+                "all_time_hourly_warm_progress",
+                user_id,
+                tenant_id or "",
+                freelancer_reference,
+            )
+            progress = cache.get(progress_key) or {}
+            done = int(progress.get("done") or 0)
+            total = int(progress.get("total") or len(missing_years))
+            data["warm_progress"] = {"done": done, "total": total}
+            data["is_warming"] = True
+            messages.info(
+                request,
+                "All-time hourly data is warming up (%s/%s). This page will auto-refresh."
+                % (done, total),
+            )
+            years = available_years or years
+        else:
+            years = available_years or years
     except Exception as exc:
         messages.warning(request, f"Upwork API error: {exc}")
         totals = [0.0 for _ in years]
@@ -2008,6 +2156,11 @@ def all_time_hourly_graph(request):
                 points.append({"name": name, "y": round(val, 2)})
         yearly_pie.append(points)
     data["yearly_client_pie_data"] = json.dumps(yearly_pie)
+
+    # Only cache the full page once all years are available, otherwise users get
+    # stuck with an incomplete page for the full TTL.
+    if not missing_years:
+        cache.set(cache_key, data, ALL_TIME_CACHE_SECONDS)
     return render(request, "upworkapi/all_time_hourly.html", data)
 
 

@@ -21,6 +21,41 @@
       </div>
     </div>
 
+    {% if is_warming %}
+    <div class="alert alert-info">
+      Preparing all-time hourly data: {{ warm_progress.done|default:"0" }}/{{ warm_progress.total|default:"0" }} years cached.
+      Keep this tab open, it will refresh automatically.
+    </div>
+    <script>
+      (function () {
+        var done = Number('{{ warm_progress.done|default:"0" }}') || 0;
+        var total = Number('{{ warm_progress.total|default:"0" }}') || 0;
+
+        // When warming finishes (done >= total) and the next refresh loads the full page,
+        // auto-play the yearly animation once.
+        if (total && done >= total) {
+          try {
+            var autoKey = 'yearly_anim_autoplay_pending:' + window.location.pathname;
+            window.localStorage && localStorage.setItem(autoKey, '1');
+          } catch (e) {}
+        }
+
+        var overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+          overlay.classList.remove('loading-hidden');
+          var txt = overlay.querySelector('.loading-text');
+          if (txt) {
+            var suffix = total ? (' (' + done + '/' + total + ')') : '';
+            txt.textContent = 'Preparing all-time hourly data, please wait' + suffix;
+          }
+        }
+
+        var delayMs = (total && done >= total) ? 2000 : 15000;
+        setTimeout(function () { window.location.reload(); }, delayMs);
+      })();
+    </script>
+    {% endif %}
+
     <div class="row">
       <div class="col-lg-6">
         <p class="lead mb-3">
@@ -305,6 +340,7 @@ $(function () {
 
       var timer = null;
       var currentIdx = maxIdx;
+      var isWarming = {% if is_warming %}true{% else %}false{% endif %};
 
       function setYear(idx, animate) {
         if (typeof idx !== 'number' || isNaN(idx)) idx = 0;
@@ -384,7 +420,7 @@ $(function () {
         var pendingKey = 'yearly_anim_autoplay_pending:' + path;
         var doneKey = 'yearly_anim_autoplay_done:' + path;
         var storage = window.sessionStorage || window.localStorage;
-        if (storage) {
+        if (!isWarming && storage) {
           var shouldPlay = false;
           if (window.localStorage && localStorage.getItem(pendingKey) === '1') {
             localStorage.removeItem(pendingKey);
