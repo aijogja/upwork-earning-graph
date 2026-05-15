@@ -1,15 +1,22 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 from upworkapi.views.reports import (
+    DEFAULT_ALL_TIME_START_YEAR,
     _month_week_ranges,
     earning_graph_annually,
     earning_graph_monthly,
     timereport_weekly,
+    _cached_earliest_earning_year,
+    _cached_earliest_time_report_year,
+    _cached_upwork_join_year,
     _extract_client_name,
+    _find_first_key,
     _get,
+    _parse_year,
 )
 
 
@@ -64,6 +71,175 @@ class HelperFunctionsTestCase(TestCase):
     def test_extract_client_name_unknown(self):
         detail = {}
         self.assertEqual(_extract_client_name(detail), "Unknown")
+
+    def test_parse_year_from_date_string(self):
+        self.assertEqual(_parse_year("2014-03-12T10:20:30Z"), 2014)
+
+    def test_parse_year_from_numeric_string_timestamp(self):
+        self.assertEqual(_parse_year("1453334400000"), 2016)
+
+    def test_find_first_key_nested_dict(self):
+        data = {
+            "data": {
+                "talentVPDAuthProfile": {
+                    "stats": {"memberSince": "2013-09-19T07:15:53.000Z"}
+                }
+            }
+        }
+        self.assertEqual(
+            _find_first_key(data, "memberSince"), "2013-09-19T07:15:53.000Z"
+        )
+
+    @patch("upworkapi.views.reports.graphql.Api")
+    @patch("upworkapi.views.reports.upwork_client.get_client")
+    def test_cached_upwork_join_year_uses_member_since(
+        self, mock_get_client, mock_graphql_api
+    ):
+        cache.clear()
+        request = MagicMock()
+        request.user.id = 101
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {
+            "data": {
+                "talentVPDAuthProfile": {
+                    "stats": {
+                        "memberSince": "2013-09-19T07:15:53.000Z",
+                    }
+                }
+            }
+        }
+        mock_graphql_api.return_value = mock_api
+
+        year = _cached_upwork_join_year(
+            request,
+            token={"access_token": "test_token"},
+            tenant_id="tenant",
+            freelancer_reference="freelancer",
+        )
+
+        self.assertEqual(year, 2013)
+        executed_query = mock_api.execute.call_args.args[0]["query"]
+        self.assertIn("memberSince", executed_query)
+
+    @patch("upworkapi.views.reports.graphql.Api")
+    @patch("upworkapi.views.reports.upwork_client.get_client")
+    def test_cached_upwork_join_year_falls_back_to_created_year(
+        self, mock_get_client, mock_graphql_api
+    ):
+        cache.clear()
+        request = MagicMock()
+        request.user.id = 103
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_api = MagicMock()
+        mock_api.execute.side_effect = [
+            Exception("Cannot query field talentVPDAuthProfile"),
+            Exception("Cannot query field joinDateTime"),
+            Exception("Cannot query field joinDateTime"),
+            Exception("Field joinDateTime must not have a selection"),
+            Exception("Field joinDateTime must not have a selection"),
+            {
+                "data": {
+                    "user": {
+                        "createdDateTime": "2015-02-11T00:00:00Z",
+                    }
+                }
+            },
+        ]
+        mock_graphql_api.return_value = mock_api
+
+        year = _cached_upwork_join_year(
+            request,
+            token={"access_token": "test_token"},
+            tenant_id="tenant",
+            freelancer_reference="freelancer",
+        )
+
+        self.assertEqual(year, 2015)
+        self.assertEqual(mock_api.execute.call_count, 6)
+
+    @patch("upworkapi.views.reports.graphql.Api")
+    @patch("upworkapi.views.reports.upwork_client.get_client")
+    def test_cached_upwork_join_year_falls_back_to_2005(
+        self, mock_get_client, mock_graphql_api
+    ):
+        cache.clear()
+        request = MagicMock()
+        request.user.id = 102
+        mock_get_client.side_effect = Exception("Upwork unavailable")
+
+        year = _cached_upwork_join_year(
+            request,
+            token={"access_token": "test_token"},
+            tenant_id="tenant",
+            freelancer_reference="freelancer",
+        )
+
+        self.assertEqual(year, DEFAULT_ALL_TIME_START_YEAR)
+
+    @patch("upworkapi.views.reports.fetch_transaction_history_rows")
+    @patch("upworkapi.views.reports._time_report_rows_for_year_range")
+    def test_cached_earliest_earning_year_uses_earliest_actual_earning(
+        self, mock_time_report_rows, mock_transaction_rows
+    ):
+        cache.clear()
+        request = MagicMock()
+        request.user.id = 104
+        mock_time_report_rows.return_value = [
+            {
+                "dateWorkedOn": "2017-04-10",
+                "totalCharges": "120.00",
+                "totalHoursWorked": 4,
+            }
+        ]
+        mock_transaction_rows.return_value = [
+            {
+                "date": "2016-08-01T00:00:00Z",
+                "occurred_at": "2016-08-01T00:00:00Z",
+                "amount": 250.0,
+                "kind": "Fixed",
+                "subtype": "Fixed price",
+                "description": "Fixed price milestone",
+            }
+        ]
+
+        year = _cached_earliest_earning_year(
+            request,
+            token={"access_token": "test_token"},
+            tenant_id="tenant",
+            tenant_ids=["tenant"],
+            freelancer_reference="freelancer",
+            fallback_year=2013,
+        )
+
+        self.assertEqual(year, 2016)
+
+    @patch("upworkapi.views.reports._time_report_rows_for_year_range")
+    def test_cached_earliest_time_report_year_uses_hours_when_charges_are_zero(
+        self, mock_time_report_rows
+    ):
+        cache.clear()
+        request = MagicMock()
+        request.user.id = 105
+        mock_time_report_rows.return_value = [
+            {
+                "dateWorkedOn": "2018-01-02",
+                "totalCharges": "0",
+                "totalHoursWorked": 2.5,
+            }
+        ]
+
+        year = _cached_earliest_time_report_year(
+            request,
+            token={"access_token": "test_token"},
+            tenant_id="tenant",
+            freelancer_reference="freelancer",
+            fallback_year=2013,
+        )
+
+        self.assertEqual(year, 2018)
 
 
 class EarningGraphAnnuallyTestCase(TestCase):
@@ -309,6 +485,37 @@ class TimereportGraphViewTestCase(TestCase):
         response = self.client.get(reverse("timereport_graph"))
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "upworkapi/timereport.html")
+
+
+class AllTimeHourlyGraphViewTestCase(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username="hourlyuser", password="testpass")
+
+    @patch("upworkapi.views.reports._warm_all_time_hourly_years_async")
+    @patch("upworkapi.views.reports._cached_earliest_time_report_year")
+    @patch("upworkapi.views.reports._cached_upwork_join_year")
+    def test_all_time_hourly_searches_from_earliest_supported_year(
+        self, mock_join_year, mock_earliest_year, mock_warm
+    ):
+        cache.clear()
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["token"] = {"access_token": "test_token"}
+        session.save()
+
+        mock_join_year.return_value = 2020
+        mock_earliest_year.return_value = 2017
+        mock_warm.return_value = True
+
+        response = self.client.get(reverse("all_time_hourly_graph"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            mock_earliest_year.call_args.kwargs["fallback_year"],
+            DEFAULT_ALL_TIME_START_YEAR,
+        )
 
 
 class ReportsURLTestCase(TestCase):

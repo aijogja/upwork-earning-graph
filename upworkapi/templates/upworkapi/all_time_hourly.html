@@ -414,27 +414,24 @@ $(function () {
 
       setYear(maxIdx, false);
 
-      // Auto-play once if something (e.g. a prior warming flow) marks it as pending.
+      var hasCompleteTimeline = (
+        !isWarming &&
+        years.length === totals.length &&
+        (!Array.isArray(yearlyPie) || !yearlyPie.length || yearlyPie.length === years.length)
+      );
+
+      // Auto-play only after the page has the full all-time dataset.
       try {
         var path = window.location.pathname;
         var pendingKey = 'yearly_anim_autoplay_pending:' + path;
-        var doneKey = 'yearly_anim_autoplay_done:' + path;
-        var storage = window.sessionStorage || window.localStorage;
-        if (!isWarming && storage) {
-          var shouldPlay = false;
-          if (window.localStorage && localStorage.getItem(pendingKey) === '1') {
+        if (hasCompleteTimeline) {
+          if (window.localStorage) {
             localStorage.removeItem(pendingKey);
-            shouldPlay = true;
-          } else if (storage.getItem(doneKey) !== '1') {
-            storage.setItem(doneKey, '1');
-            shouldPlay = true;
           }
-          if (shouldPlay) {
-            setTimeout(function () {
-              setYear(0, false);
-              play();
-            }, 350);
-          }
+          setTimeout(function () {
+            setYear(0, false);
+            play();
+          }, 350);
         }
       } catch (e) {}
     });
